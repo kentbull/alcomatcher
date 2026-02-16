@@ -3,7 +3,7 @@ name: Mobile Android Build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   build-android:
