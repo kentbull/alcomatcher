@@ -30,6 +30,7 @@ jobs:
             else
               cp .env.example .env
             fi
+            docker compose down --remove-orphans || true
             docker compose up -d --build --remove-orphans
             for i in $(seq 1 20); do
               if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
