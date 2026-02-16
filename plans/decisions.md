@@ -103,3 +103,28 @@
   - Ensures a publicly accessible, demoable product immediately while mobile review cycles run.
 - Consequences:
   - Operations and monitoring for web become critical from day one.
+
+## ADR-010: Local-First CRDT Sync for Compliance Applications
+- Status: Accepted
+- Date: 2026-02-16
+- Decision:
+  - Represent `compliance_application` as a local-first CRDT document.
+  - Sync document operations to server automatically when network is available.
+  - Keep event-sourced server state as canonical for projections and reporting.
+- Rationale:
+  - Delivers smooth offline-first UX with reliable reconciliation and minimal user friction.
+- Consequences:
+  - Requires client sync queue, conflict metrics, and explicit `pending_sync` UX states.
+  - Some server-authoritative actions will require brief loading states during sync/validation.
+
+## ADR-011: Containerized-by-Default Runtime
+- Status: Accepted
+- Date: 2026-02-16
+- Decision:
+  - Run AlcoMatcher in containers by default for both local development and production.
+  - Deploy to `alcobot` (`206.189.73.31`) using Docker Compose and image-based releases.
+- Rationale:
+  - Improves environment parity, onboarding speed, and deployment consistency.
+- Consequences:
+  - CI/CD must build, tag, and publish images before deploy.
+  - Operations runbooks include Compose rollout and rollback procedures.
