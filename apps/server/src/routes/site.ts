@@ -178,6 +178,14 @@ siteRouter.get("/scanner", (_req, res) => {
       p { margin: 0 0 14px; }
       .stack { display: grid; gap: 12px; }
       input[type="file"] { width: 100%; }
+      input[type="text"] {
+        width: 100%;
+        min-height: 44px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 0, 0, 0.2);
+        padding: 10px 12px;
+        background: white;
+      }
       button {
         width: 100%;
         min-height: 50px;
@@ -208,6 +216,10 @@ siteRouter.get("/scanner", (_req, res) => {
       <section class="card stack">
         <h1>Scanner</h1>
         <p>Capture a label photo and run a quick compliance check.</p>
+        <input id="expectedBrandName" type="text" placeholder="Expected Brand Name (optional)" />
+        <input id="expectedClassType" type="text" placeholder="Expected Class/Type (optional)" />
+        <input id="expectedAbvText" type="text" placeholder="Expected ABV (e.g. 45% Alc./Vol.) (optional)" />
+        <input id="expectedNetContents" type="text" placeholder="Expected Net Contents (e.g. 750 mL) (optional)" />
         <input id="photo" type="file" accept="image/*" capture="environment" />
         <img id="preview" alt="Label preview" />
         <button id="runCheck" type="button">Run Quick Check</button>
@@ -221,6 +233,10 @@ siteRouter.get("/scanner", (_req, res) => {
       const preview = document.getElementById("preview");
       const runBtn = document.getElementById("runCheck");
       const result = document.getElementById("result");
+      const expectedBrandNameInput = document.getElementById("expectedBrandName");
+      const expectedClassTypeInput = document.getElementById("expectedClassType");
+      const expectedAbvTextInput = document.getElementById("expectedAbvText");
+      const expectedNetContentsInput = document.getElementById("expectedNetContents");
       let selectedFile = null;
 
       function renderError(message) {
@@ -252,6 +268,7 @@ siteRouter.get("/scanner", (_req, res) => {
         result.style.borderColor = "rgba(33,33,33,0.18)";
         result.innerHTML =
           "<div><strong style='color:" + statusColor + "'>Summary: " + scan.summary.toUpperCase() + "</strong></div>" +
+          "<div>Application ID: " + (scan.applicationId || "n/a") + "</div>" +
           "<div style='margin-top:6px'>Confidence: " + Math.round((scan.confidence || 0) * 100) + "%</div>" +
           "<div>Provider: " + scan.provider + (scan.usedFallback ? " (fallback used)" : "") + "</div>" +
           "<div style='margin-top:8px'><strong>Detected Fields</strong></div>" +
@@ -288,6 +305,11 @@ siteRouter.get("/scanner", (_req, res) => {
         try {
           const formData = new FormData();
           formData.append("photo", selectedFile);
+          if (expectedBrandNameInput.value.trim()) formData.append("expectedBrandName", expectedBrandNameInput.value.trim());
+          if (expectedClassTypeInput.value.trim()) formData.append("expectedClassType", expectedClassTypeInput.value.trim());
+          if (expectedAbvTextInput.value.trim()) formData.append("expectedAbvText", expectedAbvTextInput.value.trim());
+          if (expectedNetContentsInput.value.trim()) formData.append("expectedNetContents", expectedNetContentsInput.value.trim());
+          formData.append("requireGovWarning", "true");
 
           const scanRes = await fetch("/api/scanner/quick-check", {
             method: "POST",

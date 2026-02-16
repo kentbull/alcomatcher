@@ -1,6 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
 import { ScannerService } from "../services/scannerService.js";
+import { complianceService } from "../services/complianceService.js";
+import type { ExpectedLabelFields } from "../types/scanner.js";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -26,8 +28,30 @@ scannerRouter.post("/api/scanner/quick-check", upload.single("photo"), async (re
       return res.status(400).json({ error: "photo_required" });
     }
 
-    const result = await scannerService.quickCheck(req.file.buffer);
-    return res.json(result);
+    const expected: ExpectedLabelFields = {
+      brandName: typeof req.body.expectedBrandName === "string" ? req.body.expectedBrandName : undefined,
+      classType: typeof req.body.expectedClassType === "string" ? req.body.expectedClassType : undefined,
+      abvText: typeof req.body.expectedAbvText === "string" ? req.body.expectedAbvText : undefined,
+      netContents: typeof req.body.expectedNetContents === "string" ? req.body.expectedNetContents : undefined,
+      requireGovWarning: req.body.requireGovWarning === "true"
+    };
+
+    const hasExpectedFields = Object.values(expected).some((value) => value !== undefined && value !== "");
+
+    const result = await scannerService.quickCheck(req.file.buffer, hasExpectedFields ? expected : undefined);
+
+    let applicationId = typeof req.body.applicationId === "string" ? req.body.applicationId : undefined;
+    if (!applicationId) {
+      const created = await complianceService.createApplication("distilled_spirits", "single");
+      applicationId = created.applicationId;
+    }
+
+    await complianceService.recordScannerQuickCheck(applicationId, result, hasExpectedFields ? expected : undefined);
+    await complianceService.mergeClientSync(applicationId, {
+      syncState: "pending_sync"
+    });
+
+    return res.json({ applicationId, ...result });
   } catch (error) {
     if (error instanceof multer.MulterError) {
       return res.status(400).json({

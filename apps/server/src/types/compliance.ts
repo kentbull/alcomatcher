@@ -48,7 +48,8 @@ export interface ComplianceEvent {
     | "BatchQueued"
     | "BatchItemCompleted"
     | "BatchCompleted"
-    | "SyncMerged";
+    | "SyncMerged"
+    | "ScannerQuickCheckRecorded";
   payload: Record<string, unknown>;
   createdAt: string;
 }

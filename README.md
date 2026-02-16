@@ -19,6 +19,21 @@ Scanner-first, offline-first compliance platform foundation for week one.
 - Server: `npm run dev:server`
 - Web scanner shell: `npm run dev:web`
 
+## Mobile Testing
+- Browser test (fastest):
+  - Open `https://alcomatcher.com/scanner` on your phone browser.
+  - Capture/import a label image and run quick check.
+- Native iOS build path (Capacitor):
+  - `cd apps/web`
+  - `npm run cap:sync`
+  - `npm run cap:open:ios` (open Xcode project)
+  - Build/run from Xcode to your connected iPhone.
+
+## Notes on OCR Runtime
+- Current OCR for quick check runs on server-side local Tesseract.
+- Your iPhone/browser uploads image to server for OCR and check evaluation.
+- We are not shipping native Tesseract binaries inside the iOS app in this slice.
+
 ## Architecture Notes
 - `ComplianceApplication` is modeled as a local-first CRDT document synced to the server.
 - Server state remains event-sourced and query projections are derived from immutable events.

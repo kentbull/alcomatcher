@@ -31,3 +31,11 @@ export interface ScannerQuickCheckResult {
   provider: OcrResult["provider"];
   usedFallback: boolean;
 }
+
+export interface ExpectedLabelFields {
+  brandName?: string;
+  classType?: string;
+  abvText?: string;
+  netContents?: string;
+  requireGovWarning?: boolean;
+}

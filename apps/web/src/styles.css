@@ -1,18 +1,68 @@
 .scanner-content {
-  --background: linear-gradient(160deg, #eef6ff 0%, #f9fcff 55%, #e8f4ff 100%);
+  --background: linear-gradient(160deg, #f8dfb0 0%, #f7c98f 42%, #f6e9d0 100%);
 }
 
 .scanner-panel {
-  max-width: 640px;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 1.25rem;
+  padding: 1rem;
 }
 
 .scanner-panel h1 {
-  margin: 0.5rem 0;
+  margin: 0.25rem 0;
   font-size: 2rem;
 }
 
 .scanner-panel p {
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.hidden-file {
+  display: none;
+}
+
+.preview {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  margin-top: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.result-panel {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.result-panel ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+}
+
+.result-error {
+  border-color: rgba(165, 20, 20, 0.3);
+  background: #fff1f1;
+}
+
+.status-pass {
+  border-color: rgba(28, 120, 51, 0.35);
+  background: #edf9f0;
+}
+
+.status-fail {
+  border-color: rgba(158, 32, 22, 0.35);
+  background: #fff2ee;
+}
+
+.status-needs_review {
+  border-color: rgba(147, 102, 8, 0.35);
+  background: #fff9e8;
+}
+
+.section-title {
+  margin-top: 0.5rem;
+  font-weight: 700;
 }

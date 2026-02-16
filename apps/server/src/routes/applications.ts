@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { ComplianceService } from "../services/complianceService.js";
+import { complianceService } from "../services/complianceService.js";
 
 const createSchema = z.object({
   regulatoryProfile: z.enum(["distilled_spirits", "wine", "malt_beverage"]).default("distilled_spirits"),
@@ -28,30 +28,36 @@ const syncSchema = z.object({
 });
 
 export const applicationRouter = Router();
-const complianceService = new ComplianceService();
 
-applicationRouter.post("/api/applications", (req, res) => {
+applicationRouter.post("/api/applications", async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const created = complianceService.createApplication(parsed.data.regulatoryProfile, parsed.data.submissionType);
+  const created = await complianceService.createApplication(parsed.data.regulatoryProfile, parsed.data.submissionType);
   return res.status(201).json(created);
 });
 
-applicationRouter.post("/api/applications/:applicationId/sync", (req, res) => {
+applicationRouter.post("/api/applications/:applicationId/sync", async (req, res) => {
   const parsed = syncSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const merged = complianceService.mergeClientSync(req.params.applicationId, parsed.data.patch);
+  const merged = await complianceService.mergeClientSync(req.params.applicationId, parsed.data.patch);
   if (!merged) return res.status(404).json({ error: "application_not_found" });
 
   return res.json(merged);
 });
 
-applicationRouter.get("/api/applications", (_req, res) => {
-  return res.json({ applications: complianceService.listApplications() });
+applicationRouter.get("/api/applications", async (_req, res) => {
+  return res.json({ applications: await complianceService.listApplications() });
 });
 
-applicationRouter.get("/api/applications/:applicationId/events", (req, res) => {
-  return res.json({ events: complianceService.getEvents(req.params.applicationId) });
+applicationRouter.get("/api/applications/:applicationId/events", async (req, res) => {
+  return res.json({ events: await complianceService.getEvents(req.params.applicationId) });
+});
+
+applicationRouter.get("/api/applications/:applicationId/projection", async (req, res) => {
+  const projection = await complianceService.getProjection(req.params.applicationId);
+  if (!projection) return res.status(404).json({ error: "application_not_found" });
+
+  return res.json({ projection });
 });

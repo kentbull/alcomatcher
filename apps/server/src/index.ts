@@ -11,7 +11,25 @@ import { siteRouter } from "./routes/site.js";
 const logger = pino({ level: env.LOG_LEVEL });
 const app = express();
 
-app.use(cors({ origin: env.CORS_ORIGIN }));
+const allowedOrigins = new Set([
+  env.CORS_ORIGIN,
+  "http://localhost:8100",
+  "http://localhost:5173",
+  "capacitor://localhost",
+  "ionic://localhost"
+]);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("cors_not_allowed"));
+    }
+  })
+);
 app.use(express.json());
 app.use(siteRouter);
 app.use(healthRouter);

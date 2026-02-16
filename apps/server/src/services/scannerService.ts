@@ -2,6 +2,7 @@ import { CloudFallbackAdapter } from "./ocr/cloudFallbackAdapter.js";
 import { LocalTesseractAdapter } from "./ocr/localTesseractAdapter.js";
 import type { OcrAdapter } from "../types/scanner.js";
 import type { ScannerCheck, ScannerQuickCheckResult } from "../types/scanner.js";
+import type { ExpectedLabelFields } from "../types/scanner.js";
 
 const GOV_WARNING_TOKEN = "GOVERNMENT WARNING";
 
@@ -20,7 +21,7 @@ export class ScannerService {
     private readonly cloudFallback: OcrAdapter = new CloudFallbackAdapter()
   ) {}
 
-  async quickCheck(image: Buffer): Promise<ScannerQuickCheckResult> {
+  async quickCheck(image: Buffer, expected?: ExpectedLabelFields): Promise<ScannerQuickCheckResult> {
     const local = await this.localOcr.recognize(image);
 
     let text = local.text;
@@ -39,7 +40,7 @@ export class ScannerService {
     }
 
     const extracted = this.extractFields(text);
-    const checks = this.buildChecks(extracted);
+    const checks = this.buildChecks(extracted, expected);
     const failCount = checks.filter((c) => c.status === "fail").length;
     const notEvaluableCount = checks.filter((c) => c.status === "not_evaluable").length;
 
@@ -83,7 +84,7 @@ export class ScannerService {
     };
   }
 
-  private buildChecks(extracted: ExtractedFields): ScannerCheck[] {
+  private buildChecks(extracted: ExtractedFields, expected?: ExpectedLabelFields): ScannerCheck[] {
     const checks: ScannerCheck[] = [];
 
     checks.push({
@@ -123,6 +124,81 @@ export class ScannerService {
         : "Missing GOVERNMENT WARNING token in extracted text"
     });
 
+    if (expected?.brandName) {
+      const matches = this.normalized(extracted.brandName) === this.normalized(expected.brandName);
+      checks.push({
+        id: "brand_name_match",
+        label: "Brand Name Match",
+        status: extracted.brandName ? (matches ? "pass" : "fail") : "not_evaluable",
+        detail: extracted.brandName
+          ? `Expected: ${expected.brandName}; Extracted: ${extracted.brandName}`
+          : `Expected: ${expected.brandName}; Extracted brand not detected`
+      });
+    }
+
+    if (expected?.classType) {
+      const matches = this.normalized(extracted.classType) === this.normalized(expected.classType);
+      checks.push({
+        id: "class_type_match",
+        label: "Class / Type Match",
+        status: extracted.classType ? (matches ? "pass" : "fail") : "not_evaluable",
+        detail: extracted.classType
+          ? `Expected: ${expected.classType}; Extracted: ${extracted.classType}`
+          : `Expected: ${expected.classType}; Extracted class/type not detected`
+      });
+    }
+
+    if (expected?.abvText) {
+      const expectedAbv = this.extractAbvNumber(expected.abvText);
+      const extractedAbv = this.extractAbvNumber(extracted.abvText);
+      const matches = expectedAbv !== null && extractedAbv !== null && expectedAbv === extractedAbv;
+      checks.push({
+        id: "abv_match",
+        label: "ABV Match",
+        status: extractedAbv !== null ? (matches ? "pass" : "fail") : "not_evaluable",
+        detail:
+          extractedAbv !== null
+            ? `Expected ABV: ${expectedAbv}% ; Extracted ABV: ${extractedAbv}%`
+            : `Expected ABV: ${expectedAbv ?? "unknown"}%; Extracted ABV not detected`
+      });
+    }
+
+    if (expected?.netContents) {
+      const matches = this.normalized(extracted.netContents) === this.normalized(expected.netContents);
+      checks.push({
+        id: "net_contents_match",
+        label: "Net Contents Match",
+        status: extracted.netContents ? (matches ? "pass" : "fail") : "not_evaluable",
+        detail: extracted.netContents
+          ? `Expected: ${expected.netContents}; Extracted: ${extracted.netContents}`
+          : `Expected: ${expected.netContents}; Extracted net contents not detected`
+      });
+    }
+
+    if (expected?.requireGovWarning) {
+      checks.push({
+        id: "government_warning_required_match",
+        label: "Government Warning Requirement",
+        status: extracted.hasGovWarning ? "pass" : "fail",
+        detail: extracted.hasGovWarning
+          ? "Government warning required and detected"
+          : "Government warning required but not detected"
+      });
+    }
+
     return checks;
+  }
+
+  private normalized(value?: string): string {
+    return (value ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  private extractAbvNumber(value?: string): number | null {
+    if (!value) return null;
+    const match = value.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%/);
+    if (!match) return null;
+    return Number(match[1]);
   }
 }

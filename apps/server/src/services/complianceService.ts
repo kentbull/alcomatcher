@@ -1,15 +1,35 @@
 import { randomUUID } from "node:crypto";
 import type { ComplianceApplicationDoc, ComplianceEvent, RegulatoryProfile } from "../types/compliance.js";
+import type { ScannerQuickCheckResult } from "../types/scanner.js";
+import type { ExpectedLabelFields } from "../types/scanner.js";
+import { eventStore } from "./eventStore.js";
+
+interface ApplicationProjection {
+  applicationId: string;
+  status: ComplianceApplicationDoc["status"];
+  syncState: ComplianceApplicationDoc["syncState"];
+  latestQuickCheck: ScannerQuickCheckResult | null;
+  eventCount: number;
+  lastEventAt?: string;
+}
+
+interface ScannerQuickCheckEventPayload {
+  summary: ScannerQuickCheckResult["summary"];
+  confidence: number;
+  provider: ScannerQuickCheckResult["provider"];
+  usedFallback: boolean;
+  extracted: ScannerQuickCheckResult["extracted"];
+  checks: ScannerQuickCheckResult["checks"];
+}
 
 /**
- * In-memory starter service to define event-sourcing and CRDT-sync contracts.
- * Replace with persistent command/query stores in the next iteration.
+ * In-memory state for fast local reads, with Postgres-backed event persistence.
  */
 export class ComplianceService {
   private readonly docs = new Map<string, ComplianceApplicationDoc>();
   private readonly events = new Map<string, ComplianceEvent[]>();
 
-  createApplication(regulatoryProfile: RegulatoryProfile, submissionType: "single" | "batch") {
+  async createApplication(regulatoryProfile: RegulatoryProfile, submissionType: "single" | "batch") {
     const applicationId = randomUUID();
     const now = new Date().toISOString();
 
@@ -25,16 +45,17 @@ export class ComplianceService {
     };
 
     this.docs.set(applicationId, doc);
-    this.appendEvent(applicationId, "ApplicationCreated", {
+    await this.appendEvent(applicationId, "ApplicationCreated", {
       regulatoryProfile,
       submissionType,
       syncState: doc.syncState
     });
 
+    await this.persistApplication(doc);
     return doc;
   }
 
-  mergeClientSync(applicationId: string, patch: Partial<ComplianceApplicationDoc>) {
+  async mergeClientSync(applicationId: string, patch: Partial<ComplianceApplicationDoc>) {
     const existing = this.docs.get(applicationId);
     if (!existing) return null;
 
@@ -47,23 +68,113 @@ export class ComplianceService {
     };
 
     this.docs.set(applicationId, merged);
-    this.appendEvent(applicationId, "SyncMerged", {
+    await this.appendEvent(applicationId, "SyncMerged", {
       patchKeys: Object.keys(patch),
       syncState: merged.syncState
     });
 
+    await this.persistApplication(merged);
     return merged;
   }
 
-  listApplications() {
+  async recordScannerQuickCheck(applicationId: string, result: ScannerQuickCheckResult, expected?: ExpectedLabelFields) {
+    const existing = this.docs.get(applicationId);
+    if (!existing) return null;
+
+    const nextStatus: ComplianceApplicationDoc["status"] =
+      result.summary === "pass" ? "matched" : result.summary === "fail" ? "rejected" : "needs_review";
+
+    const updated: ComplianceApplicationDoc = {
+      ...existing,
+      status: nextStatus,
+      syncState: "pending_sync",
+      updatedAt: new Date().toISOString()
+    };
+
+    this.docs.set(applicationId, updated);
+
+    await this.appendEvent(applicationId, "ScannerQuickCheckRecorded", {
+      summary: result.summary,
+      confidence: result.confidence,
+      provider: result.provider,
+      usedFallback: result.usedFallback,
+      expected: expected ?? null,
+      extracted: result.extracted,
+      checks: result.checks
+    });
+
+    await this.persistApplication(updated);
+    return updated;
+  }
+
+  async listApplications() {
+    try {
+      const persisted = await eventStore.listApplications();
+      if (persisted.length > 0) {
+        for (const doc of persisted) {
+          this.docs.set(doc.applicationId, doc);
+        }
+        return persisted;
+      }
+    } catch {
+      // Fall back to in-memory list.
+    }
+
     return Array.from(this.docs.values());
   }
 
-  getEvents(applicationId: string) {
+  async getEvents(applicationId: string) {
+    try {
+      const persisted = await eventStore.getEvents(applicationId);
+      if (persisted.length > 0) {
+        this.events.set(applicationId, persisted);
+        return persisted;
+      }
+    } catch {
+      // Fall back to in-memory events.
+    }
+
     return this.events.get(applicationId) ?? [];
   }
 
-  private appendEvent(applicationId: string, eventType: ComplianceEvent["eventType"], payload: Record<string, unknown>) {
+  async getProjection(applicationId: string): Promise<ApplicationProjection | null> {
+    let doc = this.docs.get(applicationId);
+    if (!doc) {
+      const docs = await this.listApplications();
+      doc = docs.find((entry) => entry.applicationId === applicationId);
+    }
+    if (!doc) return null;
+
+    const events = await this.getEvents(applicationId);
+    const latestQuickCheckEvent = [...events].reverse().find((event) => event.eventType === "ScannerQuickCheckRecorded");
+    const latestQuickCheckPayload = latestQuickCheckEvent?.payload as Partial<ScannerQuickCheckEventPayload> | undefined;
+    const latestQuickCheck =
+      latestQuickCheckPayload?.summary &&
+      latestQuickCheckPayload?.extracted &&
+      latestQuickCheckPayload?.checks &&
+      typeof latestQuickCheckPayload?.confidence === "number" &&
+      latestQuickCheckPayload?.provider
+        ? {
+            summary: latestQuickCheckPayload.summary,
+            extracted: latestQuickCheckPayload.extracted,
+            checks: latestQuickCheckPayload.checks,
+            confidence: latestQuickCheckPayload.confidence,
+            provider: latestQuickCheckPayload.provider,
+            usedFallback: Boolean(latestQuickCheckPayload.usedFallback)
+          }
+        : null;
+
+    return {
+      applicationId,
+      status: doc.status,
+      syncState: doc.syncState,
+      latestQuickCheck,
+      eventCount: events.length,
+      lastEventAt: events.length > 0 ? events[events.length - 1].createdAt : undefined
+    };
+  }
+
+  private async appendEvent(applicationId: string, eventType: ComplianceEvent["eventType"], payload: Record<string, unknown>) {
     const event: ComplianceEvent = {
       eventId: randomUUID(),
       applicationId,
@@ -75,5 +186,21 @@ export class ComplianceService {
     const current = this.events.get(applicationId) ?? [];
     current.push(event);
     this.events.set(applicationId, current);
+
+    try {
+      await eventStore.appendEvent(event);
+    } catch {
+      // Keep local state even if persistence is temporarily unavailable.
+    }
+  }
+
+  private async persistApplication(doc: ComplianceApplicationDoc) {
+    try {
+      await eventStore.upsertApplication(doc);
+    } catch {
+      // Non-blocking persistence fallback.
+    }
   }
 }
+
+export const complianceService = new ComplianceService();
