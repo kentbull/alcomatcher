@@ -5,6 +5,7 @@ import { env } from "./config/env.js";
 import { applicationRouter } from "./routes/applications.js";
 import { batchRouter } from "./routes/batches.js";
 import { healthRouter } from "./routes/health.js";
+import { scannerRouter } from "./routes/scanner.js";
 import { siteRouter } from "./routes/site.js";
 
 const logger = pino({ level: env.LOG_LEVEL });
@@ -16,6 +17,7 @@ app.use(siteRouter);
 app.use(healthRouter);
 app.use(applicationRouter);
 app.use(batchRouter);
+app.use(scannerRouter);
 
 app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, "AlcoMatcher API listening");

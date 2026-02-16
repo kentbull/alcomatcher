@@ -221,23 +221,64 @@ siteRouter.get("/scanner", (_req, res) => {
       const preview = document.getElementById("preview");
       const runBtn = document.getElementById("runCheck");
       const result = document.getElementById("result");
-      let hasImage = false;
+      let selectedFile = null;
+
+      function renderError(message) {
+        result.style.display = "block";
+        result.style.background = "#fff1ef";
+        result.style.borderColor = "rgba(175,45,24,0.25)";
+        result.innerHTML = "<strong>Check failed.</strong> " + message;
+      }
+
+      function renderResult(scan) {
+        const statusColor =
+          scan.summary === "pass"
+            ? "#1f7a44"
+            : scan.summary === "fail"
+              ? "#9b2c20"
+              : "#9a6b12";
+
+        const checksHtml = scan.checks
+          .map((check) => {
+            return (
+              "<li><strong>" + check.label + ":</strong> " +
+              check.status.toUpperCase() + " - " + check.detail + "</li>"
+            );
+          })
+          .join("");
+
+        result.style.display = "block";
+        result.style.background = "#f8fafc";
+        result.style.borderColor = "rgba(33,33,33,0.18)";
+        result.innerHTML =
+          "<div><strong style='color:" + statusColor + "'>Summary: " + scan.summary.toUpperCase() + "</strong></div>" +
+          "<div style='margin-top:6px'>Confidence: " + Math.round((scan.confidence || 0) * 100) + "%</div>" +
+          "<div>Provider: " + scan.provider + (scan.usedFallback ? " (fallback used)" : "") + "</div>" +
+          "<div style='margin-top:8px'><strong>Detected Fields</strong></div>" +
+          "<div>Brand: " + (scan.extracted.brandName || "not detected") + "</div>" +
+          "<div>Class/Type: " + (scan.extracted.classType || "not detected") + "</div>" +
+          "<div>ABV: " + (scan.extracted.abvText || "not detected") + "</div>" +
+          "<div>Net Contents: " + (scan.extracted.netContents || "not detected") + "</div>" +
+          "<div>Gov Warning: " + (scan.extracted.hasGovWarning ? "detected" : "not detected") + "</div>" +
+          "<div style='margin-top:8px'><strong>Checks</strong></div>" +
+          "<ul style='padding-left:20px; margin:6px 0 0'>" + checksHtml + "</ul>" +
+          "<details style='margin-top:8px'><summary>Raw OCR Text</summary><pre style='white-space:pre-wrap'>" +
+          (scan.extracted.rawText || "").slice(0, 1500).replace(/</g, "&lt;") +
+          "</pre></details>";
+      }
 
       photoInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
+        selectedFile = file;
         preview.src = URL.createObjectURL(file);
         preview.style.display = "block";
-        hasImage = true;
         result.style.display = "none";
       });
 
       runBtn.addEventListener("click", async () => {
-        if (!hasImage) {
-          result.style.display = "block";
-          result.style.background = "#fff1ef";
-          result.style.borderColor = "rgba(175,45,24,0.25)";
-          result.innerHTML = "<strong>No image selected.</strong> Capture or upload a label first.";
+        if (!selectedFile) {
+          renderError("Capture or upload a label first.");
           return;
         }
 
@@ -245,33 +286,22 @@ siteRouter.get("/scanner", (_req, res) => {
         runBtn.textContent = "Checking...";
 
         try {
-          const appRes = await fetch("/api/applications", {
+          const formData = new FormData();
+          formData.append("photo", selectedFile);
+
+          const scanRes = await fetch("/api/scanner/quick-check", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              regulatoryProfile: "distilled_spirits",
-              submissionType: "single"
-            })
-          });
-          const app = await appRes.json();
-          await fetch("/api/applications/" + app.applicationId + "/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ patch: { status: "scanned", syncState: "pending_sync" } })
+            body: formData
           });
 
-          result.style.display = "block";
-          result.style.background = "#eaf8ee";
-          result.style.borderColor = "rgba(31, 122, 68, 0.25)";
-          result.innerHTML =
-            "<strong>Quick check complete:</strong> Needs Review<br/>" +
-            "Application ID: " + app.applicationId + "<br/>" +
-            "Reason: OCR + rule validation pipeline is the next implementation slice.";
-        } catch {
-          result.style.display = "block";
-          result.style.background = "#fff1ef";
-          result.style.borderColor = "rgba(175,45,24,0.25)";
-          result.innerHTML = "<strong>Check failed.</strong> Try again in a few seconds.";
+          if (!scanRes.ok) {
+            throw new Error("Scanner API returned " + scanRes.status);
+          }
+
+          const scan = await scanRes.json();
+          renderResult(scan);
+        } catch (error) {
+          renderError((error && error.message) ? error.message : "Try again in a few seconds.");
         } finally {
           runBtn.disabled = false;
           runBtn.textContent = "Run Quick Check";
@@ -281,4 +311,3 @@ siteRouter.get("/scanner", (_req, res) => {
   </body>
 </html>`);
 });
-
