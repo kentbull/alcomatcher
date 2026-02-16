@@ -18,15 +18,18 @@ jobs:
           port: 22
           script: |
             set -euo pipefail
-            if [ ! -d /opt/alcomatcher/.git ]; then
-              rm -rf /opt/alcomatcher
-              git clone https://github.com/kentbull/alcomatcher.git /opt/alcomatcher
+            TMP_ENV="/tmp/alcomatcher.env.backup"
+            if [ -f /opt/alcomatcher/.env ]; then
+              cp /opt/alcomatcher/.env "$TMP_ENV"
             fi
+            rm -rf /opt/alcomatcher
+            git clone --branch master --single-branch https://github.com/kentbull/alcomatcher.git /opt/alcomatcher
             cd /opt/alcomatcher
-            git fetch --all --prune
-            git checkout master
-            git pull --ff-only origin master
-            [ -f .env ] || cp .env.example .env
+            if [ -f "$TMP_ENV" ]; then
+              mv "$TMP_ENV" .env
+            else
+              cp .env.example .env
+            fi
             docker compose up -d --remove-orphans
             curl -fsS http://127.0.0.1:3000/health
 
