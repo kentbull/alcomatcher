@@ -1,4 +1,4 @@
-import Tesseract from "tesseract.js";
+import { createWorker } from "tesseract.js";
 import type { OcrAdapter, OcrResult } from "../../types/scanner.js";
 
 /**
@@ -7,17 +7,36 @@ import type { OcrAdapter, OcrResult } from "../../types/scanner.js";
  */
 export class LocalTesseractAdapter implements OcrAdapter {
   async recognize(image: Buffer): Promise<OcrResult> {
-    const start = Date.now();
-    const result = await Tesseract.recognize(image, "eng");
-    const elapsedMs = Date.now() - start;
+    let workerError: Error | null = null;
+    const worker = await createWorker("eng", 1, {
+      errorHandler: (error) => {
+        workerError = error instanceof Error ? error : new Error(String(error));
+      }
+    });
 
-    const confidence = Math.max(0, Math.min(1, result.data.confidence / 100));
+    try {
+      const result = await worker.recognize(image);
 
-    return {
-      provider: "local_tesseract",
-      text: result.data.text ?? "",
-      confidence,
-      usedFallback: false
-    };
+      if (workerError) {
+        throw workerError;
+      }
+
+      const confidence = Math.max(0, Math.min(1, result.data.confidence / 100));
+      return {
+        provider: "local_tesseract",
+        text: result.data.text ?? "",
+        confidence,
+        usedFallback: false
+      };
+    } catch {
+      return {
+        provider: "local_tesseract",
+        text: "",
+        confidence: 0,
+        usedFallback: false
+      };
+    } finally {
+      await worker.terminate();
+    }
   }
 }
