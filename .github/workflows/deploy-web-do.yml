@@ -1,0 +1,62 @@
+name: Deploy Web To DO
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          echo "image_tag=ghcr.io/${{ github.repository }}/alcomatcher-app:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.image_tag }}
+
+  deploy:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy on alcobot
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DO_SSH_PORT }}
+          script: |
+            set -euo pipefail
+            export IMAGE_TAG="${{ needs.build-and-push-image.outputs.image_tag }}"
+            export APP_IMAGE="$IMAGE_TAG"
+            export WORKER_IMAGE="$IMAGE_TAG"
+            cd /opt/alcomatcher
+            docker compose pull app worker || true
+            docker compose up -d --remove-orphans
+            curl -fsS http://127.0.0.1:3000/health
+
+      - name: Verify public health
+        run: curl -fsS https://alcomatcher.com/health

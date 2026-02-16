@@ -1,0 +1,18 @@
+.scanner-content {
+  --background: linear-gradient(160deg, #eef6ff 0%, #f9fcff 55%, #e8f4ff 100%);
+}
+
+.scanner-panel {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.scanner-panel h1 {
+  margin: 0.5rem 0;
+  font-size: 2rem;
+}
+
+.scanner-panel p {
+  margin: 0 0 1rem;
+}
