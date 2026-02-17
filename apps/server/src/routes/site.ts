@@ -47,7 +47,14 @@ siteRouter.get("/", (_req, res) => {
         border: 1px solid rgba(230, 193, 138, 0.35);
         backdrop-filter: blur(4px);
       }
-      .brand img { width: 20px; height: 20px; border-radius: 999px; }
+      .brand .crest-dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1px solid rgba(246, 214, 162, 0.4);
+        background: radial-gradient(circle at 30% 25%, #f5d9a6, #c79043 58%, #8d5e2f 100%);
+        box-shadow: inset 0 0 0 1px rgba(255, 244, 222, 0.2);
+      }
       h1 {
         margin: 20px 0 10px;
         font-size: clamp(2rem, 5.5vw, 3.4rem);
@@ -120,7 +127,7 @@ siteRouter.get("/", (_req, res) => {
   </head>
   <body>
     <main class="wrap">
-      <div class="brand"><img src="/alcomatcher-crest.svg" alt="" />AlcoMatcher</div>
+      <div class="brand"><span class="crest-dot" aria-hidden="true"></span>AlcoMatcher</div>
       <h1>Heritage-Grade Alcohol Label Compliance</h1>
       <p class="sub">
         Scanner-first alcohol label verification for field agents and compliance admins.
