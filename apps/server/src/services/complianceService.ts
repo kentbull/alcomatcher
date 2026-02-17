@@ -1,18 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { ComplianceApplicationDoc, ComplianceEvent, CrdtOperation, RegulatoryProfile } from "../types/compliance.js";
+import type { ComplianceApplicationDoc, ComplianceCheck, ComplianceEvent, CrdtOperation, RegulatoryProfile } from "../types/compliance.js";
 import type { ScannerQuickCheckResult } from "../types/scanner.js";
 import type { ExpectedLabelFields } from "../types/scanner.js";
 import { eventStore } from "./eventStore.js";
 import { realtimeEventBus } from "./realtimeEventBus.js";
-
-interface ApplicationProjection {
-  applicationId: string;
-  status: ComplianceApplicationDoc["status"];
-  syncState: ComplianceApplicationDoc["syncState"];
-  latestQuickCheck: ScannerQuickCheckResult | null;
-  eventCount: number;
-  lastEventAt?: string;
-}
+import { normalizeScannerChecks } from "./complianceCheckService.js";
+import { mergeCrdtOperations } from "./crdtMergeService.js";
+import type { ApplicationProjection } from "./projectionService.js";
+import { projectApplication } from "./projectionService.js";
 
 interface ComplianceReport {
   applicationId: string;
@@ -20,7 +15,8 @@ interface ComplianceReport {
   syncState: ComplianceApplicationDoc["syncState"];
   generatedAt: string;
   latestQuickCheck: ScannerQuickCheckResult | null;
-  checks: ScannerQuickCheckResult["checks"];
+  checks: ComplianceCheck[];
+  rawChecks: ScannerQuickCheckResult["checks"];
   extracted: ScannerQuickCheckResult["extracted"] | null;
   eventTimeline: ComplianceEvent[];
 }
@@ -46,18 +42,6 @@ interface KpiSummary {
   statusCounts: Record<ComplianceApplicationDoc["status"], number>;
 }
 
-interface ScannerQuickCheckEventPayload {
-  summary: ScannerQuickCheckResult["summary"];
-  confidence: number;
-  processingMs?: number;
-  provider: ScannerQuickCheckResult["provider"];
-  usedFallback: boolean;
-  extracted: ScannerQuickCheckResult["extracted"];
-  composite?: ScannerQuickCheckResult["composite"];
-  images?: ScannerQuickCheckResult["images"];
-  checks: ScannerQuickCheckResult["checks"];
-}
-
 /**
  * In-memory state for fast local reads, with Postgres-backed event persistence.
  */
@@ -81,39 +65,35 @@ export class ComplianceService {
       updatedAt: now
     };
 
-    this.docs.set(applicationId, doc);
     await this.appendEvent(applicationId, "ApplicationCreated", {
       regulatoryProfile,
       submissionType,
       syncState: doc.syncState
     });
+    const created = await this.refreshDocFromEvents(doc, { preserveChecks: true });
 
-    await this.persistApplication(doc);
-    this.publishStatusChanged(doc.applicationId, doc.status, doc.syncState, {
+    this.publishStatusChanged(applicationId, created.status, created.syncState, {
       reason: "application_created"
     });
-    return doc;
+    return created;
   }
 
   async mergeClientSync(applicationId: string, patch: Partial<ComplianceApplicationDoc>) {
     const existing = this.docs.get(applicationId);
     if (!existing) return null;
 
-    const merged: ComplianceApplicationDoc = {
+    const mergedInput: ComplianceApplicationDoc = {
       ...existing,
       ...patch,
       applicationId: existing.applicationId,
       documentId: existing.documentId,
       updatedAt: new Date().toISOString()
     };
-
-    this.docs.set(applicationId, merged);
     await this.appendEvent(applicationId, "SyncMerged", {
       patchKeys: Object.keys(patch),
-      syncState: merged.syncState
+      syncState: mergedInput.syncState
     });
-
-    await this.persistApplication(merged);
+    const merged = await this.refreshDocFromEvents(mergedInput, { preserveChecks: true });
     if (patch.status || patch.syncState) {
       this.publishStatusChanged(merged.applicationId, merged.status, merged.syncState, {
         reason: "sync_patch_applied",
@@ -130,14 +110,14 @@ export class ComplianceService {
     const nextStatus: ComplianceApplicationDoc["status"] =
       result.summary === "pass" ? "matched" : result.summary === "fail" ? "rejected" : "needs_review";
 
-    const updated: ComplianceApplicationDoc = {
+    const normalizedChecks = normalizeScannerChecks(result.checks, existing.regulatoryProfile, result.confidence);
+    const updatedInput: ComplianceApplicationDoc = {
       ...existing,
       status: nextStatus,
+      checks: normalizedChecks,
       syncState: "pending_sync",
       updatedAt: new Date().toISOString()
     };
-
-    this.docs.set(applicationId, updated);
 
     await this.appendEvent(applicationId, "ScannerQuickCheckRecorded", {
       summary: result.summary,
@@ -151,8 +131,7 @@ export class ComplianceService {
       images: result.images,
       checks: result.checks
     });
-
-    await this.persistApplication(updated);
+    const updated = await this.refreshDocFromEvents(updatedInput);
     this.publishStatusChanged(updated.applicationId, updated.status, updated.syncState, {
       reason: "scanner_quick_check_recorded",
       summary: result.summary,
@@ -200,38 +179,7 @@ export class ComplianceService {
     if (!doc) return null;
 
     const events = await this.getEvents(applicationId);
-    const latestQuickCheckEvent = [...events].reverse().find((event) => event.eventType === "ScannerQuickCheckRecorded");
-    const latestQuickCheckPayload = latestQuickCheckEvent?.payload as Partial<ScannerQuickCheckEventPayload> | undefined;
-    const latestQuickCheck =
-      latestQuickCheckPayload?.summary &&
-      latestQuickCheckPayload?.extracted &&
-      latestQuickCheckPayload?.checks &&
-      typeof latestQuickCheckPayload?.confidence === "number" &&
-      latestQuickCheckPayload?.provider
-        ? {
-            summary: latestQuickCheckPayload.summary,
-            extracted: latestQuickCheckPayload.extracted,
-            composite: latestQuickCheckPayload.composite ?? {
-              extracted: latestQuickCheckPayload.extracted,
-              checks: latestQuickCheckPayload.checks
-            },
-            images: latestQuickCheckPayload.images ?? [],
-            checks: latestQuickCheckPayload.checks,
-            confidence: latestQuickCheckPayload.confidence,
-            processingMs: latestQuickCheckPayload.processingMs,
-            provider: latestQuickCheckPayload.provider,
-            usedFallback: Boolean(latestQuickCheckPayload.usedFallback)
-          }
-        : null;
-
-    return {
-      applicationId,
-      status: doc.status,
-      syncState: doc.syncState,
-      latestQuickCheck,
-      eventCount: events.length,
-      lastEventAt: events.length > 0 ? events[events.length - 1].createdAt : undefined
-    };
+    return projectApplication(applicationId, events, doc, doc.status);
   }
 
   async getApplication(applicationId: string): Promise<ComplianceApplicationDoc | null> {
@@ -245,19 +193,20 @@ export class ComplianceService {
 
   async listAdminQueue(status?: ComplianceApplicationDoc["status"]) {
     const applications = await this.listApplications();
-    const filtered = status ? applications.filter((app) => app.status === status) : applications;
-
-    const projections = await Promise.all(
-      filtered.map(async (app) => ({
-        applicationId: app.applicationId,
-        status: app.status,
-        syncState: app.syncState,
-        updatedAt: app.updatedAt,
-        projection: await this.getProjection(app.applicationId)
-      }))
+    const queueItems = await Promise.all(
+      applications.map(async (app) => {
+        const projection = await this.getProjection(app.applicationId);
+        return {
+          applicationId: app.applicationId,
+          status: projection?.status ?? app.status,
+          syncState: projection?.syncState ?? app.syncState,
+          updatedAt: app.updatedAt,
+          projection
+        };
+      })
     );
 
-    return projections;
+    return status ? queueItems.filter((item) => item.status === status) : queueItems;
   }
 
   async buildComplianceReport(applicationId: string): Promise<ComplianceReport | null> {
@@ -273,7 +222,12 @@ export class ComplianceService {
       syncState: doc.syncState,
       generatedAt: new Date().toISOString(),
       latestQuickCheck: projection?.latestQuickCheck ?? null,
-      checks: projection?.latestQuickCheck?.checks ?? [],
+      checks: normalizeScannerChecks(
+        projection?.latestQuickCheck?.checks ?? [],
+        doc.regulatoryProfile,
+        projection?.latestQuickCheck?.confidence ?? 0
+      ),
+      rawChecks: projection?.latestQuickCheck?.checks ?? [],
       extracted: projection?.latestQuickCheck?.extracted ?? null,
       eventTimeline: timeline
     };
@@ -330,9 +284,8 @@ export class ComplianceService {
     }));
 
     const existing = this.crdtOps.get(applicationId) ?? [];
-    existing.push(...stampedOps);
-    existing.sort((a, b) => a.sequence - b.sequence);
-    this.crdtOps.set(applicationId, existing);
+    const mergedOps = mergeCrdtOperations(existing, stampedOps);
+    this.crdtOps.set(applicationId, mergedOps);
 
     try {
       await eventStore.appendCrdtOps(applicationId, stampedOps);
@@ -368,9 +321,7 @@ export class ComplianceService {
       const persisted = await eventStore.listCrdtOps(applicationId, afterSequence);
       if (persisted.length > 0) {
         const local = this.crdtOps.get(applicationId) ?? [];
-        const knownOpIds = new Set(local.map((op) => op.opId));
-        const merged = [...local, ...persisted.filter((op) => !knownOpIds.has(op.opId))];
-        merged.sort((a, b) => a.sequence - b.sequence);
+        const merged = mergeCrdtOperations(local, persisted);
         this.crdtOps.set(applicationId, merged);
       }
     } catch {
@@ -399,6 +350,28 @@ export class ComplianceService {
     } catch {
       // Keep local state even if persistence is temporarily unavailable.
     }
+  }
+
+  private async refreshDocFromEvents(doc: ComplianceApplicationDoc, options?: { preserveChecks?: boolean }) {
+    const events = await this.getEvents(doc.applicationId);
+    const projection = projectApplication(doc.applicationId, events, doc, doc.status);
+
+    const nextDoc: ComplianceApplicationDoc = {
+      ...doc,
+      status: projection.status,
+      syncState: projection.syncState,
+      checks:
+        options?.preserveChecks && doc.checks.length > 0
+          ? doc.checks
+          : projection.latestQuickCheck
+            ? normalizeScannerChecks(projection.latestQuickCheck.checks, doc.regulatoryProfile, projection.latestQuickCheck.confidence)
+            : doc.checks,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.docs.set(nextDoc.applicationId, nextDoc);
+    await this.persistApplication(nextDoc);
+    return nextDoc;
   }
 
   private async persistApplication(doc: ComplianceApplicationDoc) {
