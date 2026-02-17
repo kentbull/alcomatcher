@@ -62,6 +62,10 @@ Scanner-first, offline-first compliance platform foundation for week one.
   - admin APIs (`/api/admin/*`, `/api/batches*`, `/admin/*`) require `compliance_manager`.
   - application data APIs require auth and are ownership-scoped for officers.
 - In non-production mode, OTP response includes `debugCode` for local testing (`AUTH_DEBUG_OTP=true`).
+- Apple review static OTP override (optional):
+  - controlled by `APPLE_REVIEW_OTP_ENABLED`, `APPLE_REVIEW_EMAIL`, `APPLE_REVIEW_OTP`
+  - when enabled, `reviewer@apple.com` can use stable OTP for App Review login
+  - reviewer account is forced/upserted as `compliance_officer` (scanner access, no admin access)
 
 ## Batch and Admin APIs (Week-One Foundation)
 - Batch ingestion (JSON items, or multipart with optional `archive` ZIP + `manifest` CSV):

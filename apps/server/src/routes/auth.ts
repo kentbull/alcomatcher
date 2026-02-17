@@ -48,6 +48,9 @@ authRouter.post("/api/auth/otp/verify", async (req, res) => {
     if (error instanceof Error && (error.message === "otp_invalid" || error.message === "otp_challenge_not_found")) {
       return res.status(401).json({ error: "otp_invalid_or_expired" });
     }
+    if (error instanceof Error && error.message === "apple_review_otp_not_configured") {
+      return res.status(500).json({ error: "apple_review_otp_not_configured" });
+    }
     if (error instanceof Error && error.message === "user_not_found") {
       return res.status(404).json({ error: "user_not_found" });
     }
@@ -66,4 +69,10 @@ authRouter.post("/api/auth/logout", requireAuth, (_req, res) => {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader("Set-Cookie", `alcomatcher_token=; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=0`);
   return res.status(204).send();
+});
+
+authRouter.get("/api/events/stream-auth-ticket", requireAuth, (req, res) => {
+  if (!req.authUser) return res.status(401).json({ error: "auth_required" });
+  const ticket = authService.mintSseTicket(req.authUser);
+  return res.json({ ticket, expiresInSeconds: 120 });
 });
