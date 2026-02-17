@@ -12,46 +12,52 @@ siteRouter.get("/", (_req, res) => {
     <meta name="description" content="AlcoMatcher delivers scanner-first alcohol label compliance checks in seconds. Offline-first and built for field agents and compliance administrators." />
     <style>
       :root {
-        --sand-1: #f8e8c7;
-        --sand-2: #f0c98f;
-        --sand-3: #d98952;
-        --rock: #8d4f2a;
-        --sky-1: #87d2f0;
-        --sky-2: #3fa6d3;
-        --ink: #2b1b12;
+        --wood-900: #2f1c14;
+        --wood-700: #5a3a2a;
+        --wood-500: #7e5b42;
+        --cask-300: #e6c18a;
+        --cask-500: #c08a3c;
+        --foam: #f6e7cf;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif;
-        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+        color: var(--foam);
         background:
-          radial-gradient(1200px 500px at 80% -40%, #fff5cf 0%, transparent 60%),
-          linear-gradient(180deg, var(--sky-1) 0%, var(--sky-2) 38%, var(--sand-1) 39%, var(--sand-2) 100%);
+          radial-gradient(1200px 420px at 78% -15%, rgba(255, 230, 177, 0.2) 0%, transparent 60%),
+          linear-gradient(165deg, #6f4f37 0%, #5a3c2d 36%, #3f2d24 72%, #2f211a 100%);
         min-height: 100vh;
       }
       .wrap {
-        max-width: 1000px;
+        max-width: 1020px;
         margin: 0 auto;
-        padding: 24px 20px 48px;
+        padding: 24px 20px 44px;
       }
       .brand {
-        display: inline-block;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
         font-weight: 800;
-        letter-spacing: 0.4px;
-        padding: 8px 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 8px 14px 8px 10px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid rgba(0, 0, 0, 0.08);
+        background: rgba(255, 239, 206, 0.15);
+        border: 1px solid rgba(230, 193, 138, 0.35);
+        backdrop-filter: blur(4px);
       }
+      .brand img { width: 20px; height: 20px; border-radius: 999px; }
       h1 {
-        margin: 20px 0 12px;
-        font-size: clamp(2rem, 6vw, 3.6rem);
-        line-height: 1.05;
+        margin: 20px 0 10px;
+        font-size: clamp(2rem, 5.5vw, 3.4rem);
+        line-height: 1.04;
+        color: #ffe7be;
       }
       .sub {
-        max-width: 720px;
+        max-width: 760px;
         font-size: clamp(1rem, 2.2vw, 1.2rem);
+        color: rgba(248, 230, 201, 0.94);
       }
       .cta-row {
         margin-top: 24px;
@@ -68,51 +74,54 @@ siteRouter.get("/", (_req, res) => {
         padding: 12px 18px;
         border-radius: 12px;
         font-weight: 700;
-        border: 1px solid rgba(0, 0, 0, 0.12);
+        border: 1px solid rgba(242, 216, 172, 0.2);
       }
       .btn-primary {
-        color: white;
-        background: linear-gradient(180deg, #d37037, #b94f1f);
+        color: #1e110c;
+        background: linear-gradient(180deg, #e0b56e, #c89242);
       }
       .btn-secondary {
-        color: #1f130d;
-        background: rgba(255, 255, 255, 0.82);
+        color: #ffefcf;
+        background: rgba(25, 15, 10, 0.34);
       }
       .cards {
-        margin-top: 28px;
+        margin-top: 26px;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
         gap: 12px;
       }
       .card {
-        background: rgba(255, 255, 255, 0.82);
-        border: 1px solid rgba(0, 0, 0, 0.1);
+        background: rgba(22, 14, 10, 0.34);
+        border: 1px solid rgba(236, 204, 151, 0.22);
         border-radius: 14px;
         padding: 14px;
       }
       .card h3 {
         margin: 0 0 6px;
+        color: #ffdfab;
         font-size: 1.04rem;
       }
+      .card p { margin: 0; color: rgba(245, 226, 194, 0.9); }
       .hero-strap {
-        margin-top: 30px;
+        margin-top: 22px;
         padding: 14px;
         border-radius: 14px;
-        background: linear-gradient(90deg, rgba(141, 79, 42, 0.92), rgba(84, 38, 22, 0.92));
-        color: #ffefd8;
+        border: 1px solid rgba(233, 196, 131, 0.34);
+        background: linear-gradient(90deg, rgba(35, 22, 15, 0.65), rgba(69, 45, 31, 0.66));
+        color: #ffe8bf;
         font-weight: 600;
       }
       footer {
-        margin-top: 30px;
-        opacity: 0.85;
+        margin-top: 24px;
+        color: rgba(252, 234, 205, 0.72);
         font-size: 0.92rem;
       }
     </style>
   </head>
   <body>
     <main class="wrap">
-      <div class="brand">AlcoMatcher</div>
-      <h1>Label Compliance, Fast as a Desert Storm</h1>
+      <div class="brand"><img src="/alcomatcher-crest.svg" alt="" />AlcoMatcher</div>
+      <h1>Heritage-Grade Alcohol Label Compliance</h1>
       <p class="sub">
         Scanner-first alcohol label verification for field agents and compliance admins.
         Run a check in seconds, get clear pass/fail reasons, and move the queue forward.
@@ -138,9 +147,7 @@ siteRouter.get("/", (_req, res) => {
           <p>Every compliance decision includes itemized checks and clear rationale.</p>
         </article>
       </section>
-      <div class="hero-strap">
-        Built in St. George spirit: practical, bold, and ready for the field.
-      </div>
+      <div class="hero-strap">Brewery-caliber clarity for field scans, admin review queues, and same-day decisions.</div>
       <footer>alcomatcher.com</footer>
     </main>
   </body>
@@ -156,30 +163,31 @@ siteRouter.get("/scanner", (_req, res) => {
     <title>AlcoMatcher Scanner</title>
     <style>
       :root {
-        --bg: #f8ead2;
-        --card: #fffaf2;
-        --ink: #2f1d12;
-        --accent: #c65a2b;
-        --ready: #2a8e42;
-        --working: #d89f1f;
-        --failed: #b5322b;
+        --bg: linear-gradient(155deg, #73533b 0%, #5b3d2c 40%, #35261d 100%);
+        --card: rgba(25, 16, 12, 0.62);
+        --ink: #f5e6cd;
+        --accent: #c08a3c;
+        --ready: #41ab5b;
+        --working: #dfa33b;
+        --failed: #c44737;
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif;
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
         color: var(--ink);
-        background: linear-gradient(180deg, #ffe9c2 0%, #f7d79f 35%, #f8ead2 100%);
+        background: var(--bg);
       }
       .wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px 32px; }
       .card {
         background: var(--card);
-        border: 1px solid rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(233, 201, 150, 0.25);
         border-radius: 16px;
         padding: 16px;
       }
-      h1 { margin: 0 0 8px; }
+      h1 { margin: 0 0 8px; color: #ffe5b4; }
+      p { color: rgba(243, 228, 200, 0.92); }
       .stack { display: grid; gap: 12px; }
       .grid { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
       .row { display: grid; gap: 8px; }
@@ -187,9 +195,9 @@ siteRouter.get("/scanner", (_req, res) => {
         width: 100%;
         min-height: 44px;
         border-radius: 10px;
-        border: 1px solid rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(231, 200, 149, 0.25);
         padding: 10px 12px;
-        background: white;
+        background: rgba(255, 250, 242, 0.94);
       }
       button {
         width: 100%;
@@ -198,7 +206,7 @@ siteRouter.get("/scanner", (_req, res) => {
         border-radius: 12px;
         font-size: 1rem;
         font-weight: 700;
-        color: white;
+        color: #20120c;
         background: var(--accent);
       }
       button:disabled { opacity: 0.65; }
@@ -220,13 +228,14 @@ siteRouter.get("/scanner", (_req, res) => {
         margin-top: 10px;
         padding: 12px;
         border-radius: 12px;
-        background: #f8fafc;
-        border: 1px solid rgba(33,33,33,0.18);
+        background: #f8f0df;
+        color: #2c1a11;
+        border: 1px solid rgba(52,35,24,0.28);
       }
       #result ul { margin: 6px 0 0; padding-left: 20px; }
-      .small { font-size: 0.92rem; opacity: 0.86; }
+      .small { font-size: 0.92rem; opacity: 0.95; color: rgba(245, 227, 193, 0.82); }
       .nav { margin-top: 12px; }
-      .nav a { color: #4e2d1b; text-decoration: none; font-weight: 700; }
+      .nav a { color: #f6ddb2; text-decoration: none; font-weight: 700; }
       @media (max-width: 640px) {
         .grid { grid-template-columns: 1fr; }
       }
@@ -410,38 +419,40 @@ siteRouter.get("/admin/queue", (_req, res) => {
     <title>AlcoMatcher Admin Queue</title>
     <style>
       :root {
-        --bg: #fcf6ea;
-        --ink: #2f1d12;
-        --accent: #b95826;
-        --card: #fffdf8;
+        --bg: linear-gradient(155deg, #6d4e38 0%, #563a2b 42%, #34251c 100%);
+        --ink: #f4e5cb;
+        --accent: #c08a3c;
+        --card: rgba(25, 16, 12, 0.62);
       }
-      body { margin: 0; font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+      body { margin: 0; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--ink); }
       .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 30px; }
       .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
       select, button {
         min-height: 40px;
         border-radius: 10px;
-        border: 1px solid rgba(0,0,0,0.2);
+        border: 1px solid rgba(239, 210, 164, 0.25);
         padding: 8px 10px;
-        background: white;
+        background: rgba(254, 248, 236, 0.96);
       }
-      button { background: var(--accent); color: white; border: none; font-weight: 700; }
+      button { background: var(--accent); color: #24150d; border: none; font-weight: 700; }
       table {
         width: 100%;
         border-collapse: collapse;
         background: var(--card);
         border-radius: 12px;
         overflow: hidden;
+        border: 1px solid rgba(234, 202, 149, 0.2);
       }
       th, td {
         text-align: left;
         padding: 10px;
-        border-bottom: 1px solid rgba(0,0,0,0.08);
+        border-bottom: 1px solid rgba(255,255,255,0.09);
         font-size: 0.95rem;
       }
-      th { background: #f8e6cd; }
-      .muted { opacity: 0.8; font-size: 0.93rem; margin-top: 8px; }
-      .links a { color: #4b2a18; text-decoration: none; font-weight: 700; }
+      th { background: rgba(225, 181, 110, 0.25); color: #ffe5b6; }
+      .muted { opacity: 0.9; font-size: 0.93rem; margin-top: 8px; color: rgba(247, 232, 205, 0.84); }
+      .links a { color: #f6ddb2; text-decoration: none; font-weight: 700; }
+      td a { color: #f8d9a2; }
     </style>
   </head>
   <body>
@@ -549,32 +560,34 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
     <title>AlcoMatcher KPI Dashboard</title>
     <style>
       :root {
-        --bg: #fbf2e4;
-        --card: #fffdf9;
-        --ink: #2f1d12;
-        --accent: #bc5b29;
+        --bg: linear-gradient(155deg, #6c4d38 0%, #4f3629 42%, #31231b 100%);
+        --card: rgba(24, 15, 11, 0.62);
+        --ink: #f3e3c7;
+        --accent: #c08a3c;
       }
-      body { margin: 0; font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+      body { margin: 0; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--ink); }
       .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 28px; }
       .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
-      .card { background: var(--card); border: 1px solid rgba(0,0,0,0.12); border-radius: 12px; padding: 12px; }
+      .card { background: var(--card); border: 1px solid rgba(233, 199, 145, 0.22); border-radius: 12px; padding: 12px; }
       .k { font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
       .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
       button, select {
         min-height: 40px;
         border-radius: 10px;
-        border: 1px solid rgba(0,0,0,0.2);
+        border: 1px solid rgba(236, 205, 154, 0.26);
         padding: 8px 10px;
+        background: rgba(255, 251, 244, 0.96);
       }
-      button { background: var(--accent); color: white; border: none; font-weight: 700; }
+      button { background: var(--accent); color: #24150d; border: none; font-weight: 700; }
       pre {
-        background: #fff;
-        border: 1px solid rgba(0,0,0,0.1);
+        background: #f7efdf;
+        border: 1px solid rgba(49,32,23,0.24);
+        color: #2f1d13;
         border-radius: 10px;
         padding: 10px;
         white-space: pre-wrap;
       }
-      .nav a { text-decoration: none; font-weight: 700; color: #4a2817; }
+      .nav a { text-decoration: none; font-weight: 700; color: #f3d9ab; }
     </style>
   </head>
   <body>
@@ -668,21 +681,22 @@ siteRouter.get("/admin/batches", (_req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AlcoMatcher Batch Drill-Down</title>
     <style>
-      :root { --bg:#fbf1e2; --card:#fffdf8; --ink:#2c1a10; --accent:#b95a29; }
-      body { margin:0; font-family:"Avenir Next","Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+      :root { --bg:linear-gradient(155deg, #6b4b36 0%, #50392b 40%, #30231b 100%); --card:rgba(24,15,11,0.62); --ink:#f4e4c8; --accent:#c08a3c; }
+      body { margin:0; font-family:"Avenir Next","Segoe UI","Trebuchet MS",sans-serif; background:var(--bg); color:var(--ink); }
       .wrap { max-width:1200px; margin:0 auto; padding:20px 16px 28px; }
       .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
-      button, select { min-height:40px; border-radius:10px; border:1px solid rgba(0,0,0,0.2); padding:8px 10px; }
-      button { background:var(--accent); color:white; border:none; font-weight:700; }
+      button, select { min-height:40px; border-radius:10px; border:1px solid rgba(239,206,156,0.28); padding:8px 10px; background:rgba(255,251,244,0.96); }
+      button { background:var(--accent); color:#24150d; border:none; font-weight:700; }
       .grid { display:grid; gap:10px; grid-template-columns: 1.2fr 1fr; }
       @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
-      .panel { background:var(--card); border:1px solid rgba(0,0,0,0.1); border-radius:12px; padding:12px; }
+      .panel { background:var(--card); border:1px solid rgba(232,198,145,0.22); border-radius:12px; padding:12px; }
       table { width:100%; border-collapse:collapse; }
-      th, td { text-align:left; padding:8px; border-bottom:1px solid rgba(0,0,0,0.08); font-size:0.93rem; }
+      th, td { text-align:left; padding:8px; border-bottom:1px solid rgba(255,255,255,0.09); font-size:0.93rem; }
+      th { color: #ffe5b7; background: rgba(225, 181, 110, 0.22); }
       tr.clickable { cursor:pointer; }
-      tr.clickable:hover { background:rgba(0,0,0,0.03); }
-      pre { white-space:pre-wrap; background:#fff; border:1px solid rgba(0,0,0,0.1); border-radius:10px; padding:10px; }
-      .nav a { color:#4a2817; text-decoration:none; font-weight:700; }
+      tr.clickable:hover { background:rgba(255,255,255,0.06); }
+      pre { white-space:pre-wrap; background:#f7efdf; border:1px solid rgba(49,32,23,0.24); color:#2f1d13; border-radius:10px; padding:10px; }
+      .nav a { color:#f3d9ab; text-decoration:none; font-weight:700; }
     </style>
   </head>
   <body>

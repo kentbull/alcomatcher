@@ -1,22 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
+import { CameraPreview } from "@capacitor-community/camera-preview";
 import { setupIonicReact } from "@ionic/react";
-import {
-  IonApp,
-  IonButton,
-  IonContent,
-  IonHeader,
-  IonInput,
-  IonItem,
-  IonLabel,
-  IonList,
-  IonLoading,
-  IonPage,
-  IonText,
-  IonTitle,
-  IonToolbar
-} from "@ionic/react";
+import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonText } from "@ionic/react";
+import { add, close, paperPlaneOutline, receiptOutline } from "ionicons/icons";
 import "@ionic/react/css/core.css";
 import "@ionic/react/css/normalize.css";
 import "@ionic/react/css/structure.css";
@@ -27,6 +16,8 @@ setupIonicReact();
 
 type Role = "front" | "back" | "additional";
 type UploadState = "queued" | "uploading" | "processing" | "ready" | "failed";
+type CapturePhase = "front" | "back" | "additional";
+type CaptureMode = "preview" | "modal";
 
 interface ScannerCheck {
   id: string;
@@ -83,13 +74,41 @@ interface ScanProgressEvent {
   };
 }
 
+interface ScannerCaptureAdapter {
+  mode: CaptureMode;
+  startPreview?: () => Promise<void>;
+  stopPreview?: () => Promise<void>;
+  captureFrame: (role: Role) => Promise<File>;
+}
+
 const STATUS_LABEL: Record<UploadState, string> = {
   queued: "Queued",
-  uploading: "Uploading...",
-  processing: "Processing...",
+  uploading: "Uploading",
+  processing: "Processing",
   ready: "Ready",
   failed: "Failed"
 };
+
+function roleLabel(role: Role, index: number) {
+  if (role === "front") return "FRONT";
+  if (role === "back") return "BACK";
+  return `ADD ${index + 1}`;
+}
+
+function roleRank(role: Role) {
+  if (role === "front") return 0;
+  if (role === "back") return 1;
+  return 2;
+}
+
+function base64ToFile(base64Payload: string, fileName: string, mimeType = "image/jpeg") {
+  const raw = base64Payload.includes(",") ? base64Payload.split(",").pop() ?? "" : base64Payload;
+  const binary = atob(raw);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimeType });
+  return new File([blob], fileName, { type: mimeType });
+}
 
 function App() {
   const [images, setImages] = useState<LocalImage[]>([]);
@@ -97,15 +116,20 @@ function App() {
   const [applicationId, setApplicationId] = useState<string>("");
   const [sessionLoading, setSessionLoading] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode>("modal");
+  const [previewReady, setPreviewReady] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const [capturePhase, setCapturePhase] = useState<CapturePhase>("front");
+  const [stackExpanded, setStackExpanded] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<FinalizeResult | null>(null);
-  const [expectedBrandName, setExpectedBrandName] = useState("");
-  const [expectedClassType, setExpectedClassType] = useState("");
-  const [expectedAbvText, setExpectedAbvText] = useState("");
-  const [expectedNetContents, setExpectedNetContents] = useState("");
+
   const frontInputRef = useRef<HTMLInputElement | null>(null);
   const backInputRef = useRef<HTMLInputElement | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
+  const expansionTimerRef = useRef<number | null>(null);
 
   const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
   const frontReady = images.some((image) => image.role === "front" && image.uploadState === "ready");
@@ -114,8 +138,23 @@ function App() {
   const loadingMessage = sessionLoading
     ? "Starting scan session..."
     : finalizing
-      ? "Finalizing composite compliance check..."
-      : "";
+      ? "Running compliance checks..."
+      : captureBusy
+        ? "Capturing image..."
+        : "";
+
+  const sortedImages = [...images].sort((a, b) => {
+    const roleDiff = roleRank(a.role) - roleRank(b.role);
+    if (roleDiff !== 0) return roleDiff;
+    return a.index - b.index;
+  });
+
+  const activePrompt =
+    capturePhase === "front"
+      ? "Scan the front label"
+      : capturePhase === "back"
+        ? "Now scan the back label"
+        : "Scan additional details or tap Done";
 
   const compressImage = useCallback(async (file: File): Promise<File> => {
     if (!file.type.startsWith("image/")) return file;
@@ -166,9 +205,91 @@ function App() {
     }
   }, [apiBase]);
 
+  const modalAdapter = useMemo<ScannerCaptureAdapter>(
+    () => ({
+      mode: "modal",
+      captureFrame: async (role: Role) => {
+        const photo = await Camera.getPhoto({
+          quality: 80,
+          resultType: CameraResultType.Base64,
+          source: CameraSource.Camera
+        });
+        if (!photo.base64String) throw new Error("capture_cancelled");
+        const mimeType = photo.format ? `image/${photo.format}` : "image/jpeg";
+        return base64ToFile(photo.base64String, `${role}-${Date.now()}.jpg`, mimeType);
+      }
+    }),
+    []
+  );
+
+  const previewAdapter = useMemo<ScannerCaptureAdapter>(
+    () => ({
+      mode: "preview",
+      startPreview: async () => {
+        const alreadyStarted = await CameraPreview.isCameraStarted().catch(() => ({ value: false }));
+        if (alreadyStarted?.value) return;
+        await CameraPreview.start({
+          position: "rear",
+          toBack: true,
+          disableAudio: true,
+          x: 0,
+          y: 0,
+          width: window.screen.width,
+          height: window.screen.height
+        });
+      },
+      stopPreview: async () => {
+        const started = await CameraPreview.isCameraStarted().catch(() => ({ value: false }));
+        if (!started?.value) return;
+        await CameraPreview.stop();
+      },
+      captureFrame: async (role: Role) => {
+        const result = await CameraPreview.capture({ quality: 88 });
+        if (!result?.value) throw new Error("capture_empty");
+        return base64ToFile(result.value, `${role}-${Date.now()}.jpg`, "image/jpeg");
+      }
+    }),
+    []
+  );
+
+  const captureAdapter = useMemo<ScannerCaptureAdapter>(
+    () => (captureMode === "preview" ? previewAdapter : modalAdapter),
+    [captureMode, modalAdapter, previewAdapter]
+  );
+
   useEffect(() => {
     void createSession();
-  }, [createSession]);
+
+    let disposed = false;
+    const startPreview = async () => {
+      if (!Capacitor.isNativePlatform()) {
+        setCaptureMode("modal");
+        setPreviewReady(false);
+        return;
+      }
+
+      try {
+        await previewAdapter.startPreview?.();
+        if (disposed) return;
+        setCaptureMode("preview");
+        setPreviewReady(true);
+        setPreviewError("");
+      } catch (err) {
+        if (disposed) return;
+        setCaptureMode("modal");
+        setPreviewReady(false);
+        setPreviewError(err instanceof Error ? err.message : "Camera preview unavailable");
+      }
+    };
+
+    void startPreview();
+
+    return () => {
+      disposed = true;
+      if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
+      void previewAdapter.stopPreview?.();
+    };
+  }, [createSession, previewAdapter]);
 
   const updateImageState = useCallback((localId: string, patch: Partial<LocalImage>) => {
     setImages((current) => current.map((image) => (image.localId === localId ? { ...image, ...patch } : image)));
@@ -250,34 +371,53 @@ function App() {
     [addImage, images, updateImageState]
   );
 
-  const capturePhoto = useCallback(
-    async (role: Role) => {
+  const nextRoleAfter = useCallback((role: Role): CapturePhase => (role === "front" ? "back" : "additional"), []);
+
+  const captureSingle = useCallback(
+    async (role: Role): Promise<"captured" | "cancelled"> => {
+      setCaptureBusy(true);
       try {
-        const photo = await Camera.getPhoto({
-          quality: 80,
-          resultType: CameraResultType.Base64,
-          source: CameraSource.Camera
-        });
-        if (!photo.base64String) return;
-        const binary = atob(photo.base64String);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: photo.format ? `image/${photo.format}` : "image/jpeg" });
-        const file = new File([blob], `${role}-${Date.now()}.jpg`, { type: blob.type });
+        const file = await captureAdapter.captureFrame(role);
         await addImage(file, role);
-      } catch {
-        if (role === "front") frontInputRef.current?.click();
-        if (role === "back") backInputRef.current?.click();
-        if (role === "additional") addInputRef.current?.click();
+        setCapturePhase(nextRoleAfter(role));
+        return "captured";
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "capture_failed";
+        if (message === "capture_cancelled" || message.toLowerCase().includes("cancel")) {
+          return "cancelled";
+        }
+        if (captureMode === "modal") {
+          if (role === "front") frontInputRef.current?.click();
+          if (role === "back") backInputRef.current?.click();
+          if (role === "additional") addInputRef.current?.click();
+          return "cancelled";
+        }
+        setError(`Capture failed for ${role}. ${message}`);
+        return "cancelled";
+      } finally {
+        setCaptureBusy(false);
       }
     },
-    [addImage]
+    [addImage, captureAdapter, captureMode, nextRoleAfter]
   );
+
+  const captureNext = useCallback(async () => {
+    setResult(null);
+    setError("");
+    if (!sessionId) {
+      const created = await createSession();
+      if (!created?.sessionId) return;
+    }
+    const outcome = await captureSingle(capturePhase);
+    if (outcome === "cancelled" && capturePhase !== "additional") {
+      setError(`Capture canceled for ${capturePhase}. Tap to continue.`);
+    }
+  }, [capturePhase, captureSingle, createSession, sessionId]);
 
   const finalizeScan = useCallback(async () => {
     if (!sessionId) return;
     if (!frontReady || !backReady) {
-      setError("Front and back images must be uploaded and processed first.");
+      setError("Front and back images must be uploaded and processed before running quick check.");
       return;
     }
     setFinalizing(true);
@@ -290,10 +430,6 @@ function App() {
           "x-alcomatcher-client-sync": "crdt"
         },
         body: JSON.stringify({
-          expectedBrandName,
-          expectedClassType,
-          expectedAbvText,
-          expectedNetContents,
           requireGovWarning: true
         })
       });
@@ -303,12 +439,26 @@ function App() {
       }
       setApplicationId(payload.applicationId ?? applicationId);
       setResult(payload as FinalizeResult);
+      setReportVisible(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Finalize failed");
     } finally {
       setFinalizing(false);
     }
-  }, [apiBase, applicationId, backReady, expectedAbvText, expectedBrandName, expectedClassType, expectedNetContents, frontReady, sessionId]);
+  }, [apiBase, applicationId, backReady, frontReady, sessionId]);
+
+  const spreadStack = useCallback(
+    (index: number) => {
+      if (index === 0 || sortedImages.length < 2) return;
+      setStackExpanded(true);
+      if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
+      expansionTimerRef.current = window.setTimeout(() => {
+        setStackExpanded(false);
+        expansionTimerRef.current = null;
+      }, 1800);
+    },
+    [sortedImages.length]
+  );
 
   useEffect(() => {
     if (typeof EventSource === "undefined" || !applicationId) return;
@@ -346,47 +496,39 @@ function App() {
     };
   }, [apiBase, applicationId]);
 
-  const sortedImages = [...images].sort((a, b) => {
-    const rank = (role: Role) => (role === "front" ? 0 : role === "back" ? 1 : 2);
-    const roleDiff = rank(a.role) - rank(b.role);
-    if (roleDiff !== 0) return roleDiff;
-    return a.index - b.index;
-  });
+  const scanButtonLabel = captureBusy ? "Capturing..." : "Scan Another";
 
   return (
     <IonApp>
       <IonPage>
-        <IonHeader>
-          <IonToolbar>
-            <IonTitle>AlcoMatcher Scanner</IonTitle>
-          </IonToolbar>
-        </IonHeader>
-        <IonContent className="scanner-content">
-          <div className="scanner-panel">
-            <IonText>
-              <h1>Scan Label Now</h1>
-              <p>Capture front and back photos first. Additional photos are optional for curved/odd labels.</p>
-            </IonText>
-
-            <IonList inset>
-              <IonItem>
-                <IonInput label="Expected Brand" labelPlacement="stacked" value={expectedBrandName} onIonInput={(e) => setExpectedBrandName(String(e.detail.value ?? ""))} />
-              </IonItem>
-              <IonItem>
-                <IonInput label="Expected Class/Type" labelPlacement="stacked" value={expectedClassType} onIonInput={(e) => setExpectedClassType(String(e.detail.value ?? ""))} />
-              </IonItem>
-              <IonItem>
-                <IonInput label="Expected ABV" labelPlacement="stacked" value={expectedAbvText} onIonInput={(e) => setExpectedAbvText(String(e.detail.value ?? ""))} />
-              </IonItem>
-              <IonItem>
-                <IonInput
-                  label="Expected Net Contents"
-                  labelPlacement="stacked"
-                  value={expectedNetContents}
-                  onIonInput={(e) => setExpectedNetContents(String(e.detail.value ?? ""))}
-                />
-              </IonItem>
-            </IonList>
+        <IonContent className="scanner-content" fullscreen scrollY={false}>
+          <div className="scanner-shell">
+            <section className="scanner-hero">
+              <IonText>
+                <div className="crest-chip">
+                  <img src="/alcomatcher-crest.svg" alt="AlcoMatcher crest" />
+                  <span>AlcoMatcher</span>
+                </div>
+                <h1>{activePrompt}</h1>
+                <p>
+                  {captureMode === "preview"
+                    ? previewReady
+                      ? "Live camera is ready. Tap scan and move fast through labels."
+                      : "Starting live camera preview..."
+                    : "Fallback camera mode active."
+                  }
+                </p>
+                {previewError ? <p className="preview-warning">Preview fallback: {previewError}</p> : null}
+              </IonText>
+              <div className="step-row" role="status" aria-live="polite">
+                <span className={`step-pill ${capturePhase === "front" ? "is-active" : frontReady ? "is-done" : ""}`}>Front</span>
+                <span className={`step-pill ${capturePhase === "back" ? "is-active" : backReady ? "is-done" : ""}`}>Back</span>
+                <span className={`step-pill ${capturePhase === "additional" ? "is-active" : ""}`}>Additional</span>
+              </div>
+              <div className="lens-frame">
+                <div className="lens-reticle" />
+              </div>
+            </section>
 
             <input
               ref={frontInputRef}
@@ -395,7 +537,9 @@ function App() {
               accept="image/*"
               onChange={async (event) => {
                 const file = event.currentTarget.files?.[0];
-                if (file) await addImage(file, "front");
+                if (!file) return;
+                await addImage(file, "front");
+                setCapturePhase("back");
               }}
             />
             <input
@@ -405,7 +549,9 @@ function App() {
               accept="image/*"
               onChange={async (event) => {
                 const file = event.currentTarget.files?.[0];
-                if (file) await addImage(file, "back");
+                if (!file) return;
+                await addImage(file, "back");
+                setCapturePhase("additional");
               }}
             />
             <input
@@ -422,107 +568,126 @@ function App() {
               }}
             />
 
-            <IonButton expand="block" size="large" color="primary" onClick={() => void capturePhoto("front")} disabled={sessionLoading}>
-              Capture Front Label
-            </IonButton>
-            <IonButton expand="block" size="large" color="primary" fill="outline" onClick={() => void capturePhoto("back")} disabled={sessionLoading}>
-              Capture Back Label
-            </IonButton>
-            <IonButton
-              expand="block"
-              size="large"
-              color="secondary"
-              fill="outline"
-              onClick={() => void capturePhoto("additional")}
-              disabled={sessionLoading || images.length >= 6}
-            >
-              Add Additional Photo
-            </IonButton>
-            <IonButton expand="block" size="large" color="tertiary" disabled={!canFinalize} onClick={() => void finalizeScan()}>
-              {finalizing ? "Finalizing..." : "Run Quick Check"}
-            </IonButton>
+            <div className="scanner-actions">
+              {result ? (
+                <IonButton
+                  className="report-button"
+                  fill="clear"
+                  size="default"
+                  onClick={() => setReportVisible(true)}
+                >
+                  <IonIcon icon={receiptOutline} slot="start" />
+                  Report
+                </IonButton>
+              ) : (
+                <span />
+              )}
 
-            <div className="image-grid">
-              {sortedImages.map((image) => (
-                <div key={image.localId} className={`image-tile image-tile--${image.uploadState}`}>
-                  <img className="preview" src={image.previewUrl} alt={`${image.role} preview`} />
-                  <div className="image-badge">
-                    {image.role.toUpperCase()}
-                    {image.role === "additional" ? ` #${image.index + 1}` : ""}
-                    {" · "}
-                    {STATUS_LABEL[image.uploadState]}
-                  </div>
-                  {image.uploadState === "failed" ? (
-                    <button className="retry-banner" type="button" onClick={() => void retryUpload(image.localId)}>
-                      Upload failed. Tap to retry.
-                    </button>
-                  ) : null}
+              <IonButton
+                className="fab-plus"
+                fill="clear"
+                onClick={() => void captureNext()}
+                disabled={sessionLoading || finalizing || captureBusy}
+              >
+                <div className="fab-plus-inner">
+                  <IonIcon icon={add} />
                 </div>
-              ))}
+                <span>{scanButtonLabel}</span>
+              </IonButton>
+
+              <IonButton
+                className="fab-send"
+                fill="clear"
+                onClick={() => void finalizeScan()}
+                disabled={!canFinalize || captureBusy}
+              >
+                <IonIcon icon={paperPlaneOutline} />
+                <span>{finalizing ? "Sending..." : "Send"}</span>
+              </IonButton>
             </div>
 
-            <div className="upload-list">
-              {sortedImages.map((image) => (
-                <div key={`${image.localId}-line`} className="upload-line">
-                  <strong>{image.role}</strong>
-                  {image.role === "additional" ? ` #${image.index + 1}` : ""}: {STATUS_LABEL[image.uploadState]}
-                  {image.uploadError ? ` (${image.uploadError})` : ""}
-                </div>
-              ))}
-            </div>
+            <section className="scan-card-dock">
+              <div className={`scan-card-stack ${stackExpanded ? "is-expanded" : ""}`}>
+                {sortedImages.map((image, index) => {
+                  const spread = stackExpanded ? 72 : 26;
+                  const style = {
+                    transform: `translateX(${index * spread}px) rotate(${index * 1.8}deg)`,
+                    zIndex: String(500 - index)
+                  };
+                  return (
+                    <article
+                      key={image.localId}
+                      className={`scan-card image-tile--${image.uploadState}`}
+                      style={style}
+                      onClick={() => spreadStack(index)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") spreadStack(index);
+                      }}
+                    >
+                      <img className="scan-card-image" src={image.previewUrl} alt={`${image.role} preview`} />
+                      <div className="scan-card-meta">
+                        <span>{roleLabel(image.role, image.index)}</span>
+                        <span>{STATUS_LABEL[image.uploadState]}</span>
+                      </div>
+                      {image.uploadState === "failed" ? (
+                        <button className="retry-banner" type="button" onClick={() => void retryUpload(image.localId)}>
+                          Upload failed. Tap to retry.
+                        </button>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
 
             {error ? (
               <div className="result-panel result-error">
-                <strong>Check failed:</strong> {error}
+                <strong>Scanner error:</strong> {error}
               </div>
             ) : null}
 
-            {result ? (
-              <div className={`result-panel status-${result.summary}`}>
-                <div>
-                  <strong>Summary:</strong> {result.summary.toUpperCase()}
-                </div>
-                <div>
-                  <strong>Application:</strong> {result.applicationId}
-                </div>
-                <div>
-                  <strong>Confidence:</strong> {Math.round(result.confidence * 100)}%
-                </div>
-                <div>
-                  <strong>Composite Time:</strong> {Math.round(result.processingMs ?? 0)} ms
-                </div>
-                <div className="section-title">Composite Detected Fields</div>
-                <div>Brand: {result.extracted.brandName ?? "not detected"}</div>
-                <div>Class/Type: {result.extracted.classType ?? "not detected"}</div>
-                <div>ABV: {result.extracted.abvText ?? "not detected"}</div>
-                <div>Net Contents: {result.extracted.netContents ?? "not detected"}</div>
-                <div>Gov Warning: {result.extracted.hasGovWarning ? "detected" : "not detected"}</div>
-                <div className="section-title">Composite Checks</div>
-                <ul>
-                  {result.checks.map((check) => (
-                    <li key={check.id}>
-                      <strong>{check.label}:</strong> {check.status.toUpperCase()} - {check.detail}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <IonList inset>
-              <IonItem>
-                <IonLabel>Session: {sessionId || "starting..."}</IonLabel>
-              </IonItem>
-              <IonItem>
-                <IonLabel>Application: {applicationId || "pending"}</IonLabel>
-              </IonItem>
-              <IonItem>
-                <IonLabel>Front Ready: {frontReady ? "yes" : "no"}</IonLabel>
-              </IonItem>
-              <IonItem>
-                <IonLabel>Back Ready: {backReady ? "yes" : "no"}</IonLabel>
-              </IonItem>
-            </IonList>
           </div>
+          <IonModal
+            isOpen={reportVisible && Boolean(result)}
+            onDidDismiss={() => setReportVisible(false)}
+            backdropDismiss
+            className="report-modal"
+          >
+            <div className="report-overlay">
+              <div className="report-header">
+                <strong>Compliance Report</strong>
+                <button type="button" className="report-close" onClick={() => setReportVisible(false)} aria-label="Close report">
+                  <IonIcon icon={close} />
+                </button>
+              </div>
+              {result ? (
+                <div className={`result-panel status-${result.summary}`}>
+                  <div>
+                    <strong>Summary:</strong> {result.summary.toUpperCase()}
+                  </div>
+                  <div>
+                    <strong>Application:</strong> {result.applicationId}
+                  </div>
+                  <div>
+                    <strong>Confidence:</strong> {Math.round(result.confidence * 100)}%
+                  </div>
+                  <div>
+                    <strong>Composite Time:</strong> {Math.round(result.processingMs ?? 0)} ms
+                  </div>
+                  <div className="section-title">Composite Checks</div>
+                  <ul>
+                    {result.checks.map((check) => (
+                      <li key={check.id}>
+                        <strong>{check.label}:</strong> {check.status.toUpperCase()} - {check.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </IonModal>
         </IonContent>
       </IonPage>
       <IonLoading isOpen={sessionLoading || finalizing} message={loadingMessage} />
