@@ -288,7 +288,13 @@ function App() {
       if (expectedAbvText.trim()) formData.append("expectedAbvText", expectedAbvText.trim());
       if (expectedNetContents.trim()) formData.append("expectedNetContents", expectedNetContents.trim());
 
-      const response = await fetch(`${apiBase}/api/scanner/quick-check`, { method: "POST", body: formData });
+      const response = await fetch(`${apiBase}/api/scanner/quick-check`, {
+        method: "POST",
+        headers: {
+          "x-alcomatcher-client-sync": "crdt"
+        },
+        body: formData
+      });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as ScannerErrorPayload;
         throw new Error(mapScannerError(payload, response.status));

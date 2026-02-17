@@ -136,3 +136,18 @@ applicationRouter.get("/api/admin/queue", async (req, res) => {
   const queue = await complianceService.listAdminQueue(parsedStatus?.success ? parsedStatus.data : undefined);
   return res.json({ queue });
 });
+
+applicationRouter.get("/api/admin/kpis", async (req, res) => {
+  const windowHoursRaw = typeof req.query.windowHours === "string" ? Number(req.query.windowHours) : 24;
+  const windowHours = Number.isFinite(windowHoursRaw) && windowHoursRaw > 0 ? Math.min(windowHoursRaw, 24 * 14) : 24;
+  const kpis = await complianceService.getKpiSummary(windowHours);
+  return res.json({ kpis });
+});
+
+applicationRouter.post("/api/admin/backfill/sync-state", async (_req, res) => {
+  const result = await complianceService.backfillPendingSyncToSynced();
+  return res.json({
+    status: "ok",
+    ...result
+  });
+});

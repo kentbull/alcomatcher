@@ -120,6 +120,7 @@ siteRouter.get("/", (_req, res) => {
       <div class="cta-row">
         <a class="btn btn-primary" href="/scanner">Open Scanner</a>
         <a class="btn btn-secondary" href="/admin/queue">Open Admin Queue</a>
+        <a class="btn btn-secondary" href="/admin/dashboard">KPI Dashboard</a>
         <a class="btn btn-secondary" href="/health">System Health</a>
       </div>
       <section class="cards">
@@ -416,6 +417,7 @@ siteRouter.get("/admin/queue", (_req, res) => {
           <option value="batch_completed">Batch completed</option>
         </select>
         <button id="refreshBtn" type="button">Refresh Queue</button>
+        <a href="/admin/dashboard" style="text-decoration:none"><button type="button">Open KPI Dashboard</button></a>
       </div>
       <table>
         <thead>
@@ -490,6 +492,126 @@ siteRouter.get("/admin/queue", (_req, res) => {
         events.addEventListener("batch.progress", scheduleQueueRefresh);
       }
       loadQueue();
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/admin/dashboard", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher KPI Dashboard</title>
+    <style>
+      :root {
+        --bg: #fbf2e4;
+        --card: #fffdf9;
+        --ink: #2f1d12;
+        --accent: #bc5b29;
+      }
+      body { margin: 0; font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 28px; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+      .card { background: var(--card); border: 1px solid rgba(0,0,0,0.12); border-radius: 12px; padding: 12px; }
+      .k { font-size: 1.5rem; font-weight: 800; margin-top: 6px; }
+      .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+      button, select {
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(0,0,0,0.2);
+        padding: 8px 10px;
+      }
+      button { background: var(--accent); color: white; border: none; font-weight: 700; }
+      pre {
+        background: #fff;
+        border: 1px solid rgba(0,0,0,0.1);
+        border-radius: 10px;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+      .nav a { text-decoration: none; font-weight: 700; color: #4a2817; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>KPI Dashboard</h1>
+      <div class="toolbar">
+        <label for="windowHours">Window:</label>
+        <select id="windowHours">
+          <option value="24">24 hours</option>
+          <option value="72">72 hours</option>
+          <option value="168">7 days</option>
+        </select>
+        <button id="refreshBtn" type="button">Refresh KPIs</button>
+        <button id="backfillBtn" type="button">Backfill pending_sync -> synced</button>
+      </div>
+      <section class="cards" id="kpiCards"></section>
+      <h3>Raw KPI Payload</h3>
+      <pre id="raw"></pre>
+      <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/">Home</a></p>
+    </main>
+    <script>
+      const kpiCards = document.getElementById("kpiCards");
+      const raw = document.getElementById("raw");
+      const windowHours = document.getElementById("windowHours");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const backfillBtn = document.getElementById("backfillBtn");
+      let refreshTimer = null;
+
+      function card(label, value) {
+        return "<article class='card'><div>" + label + "</div><div class='k'>" + value + "</div></article>";
+      }
+
+      function render(kpis) {
+        const fallbackRate = Math.round((kpis.scanPerformance.fallbackRate || 0) * 100);
+        const avgConfidence = Math.round((kpis.scanPerformance.avgConfidence || 0) * 100);
+        kpiCards.innerHTML =
+          card("Total Applications", kpis.totals.applications) +
+          card("Quick Checks", kpis.totals.quickChecks) +
+          card("Scan p50 (ms)", kpis.scanPerformance.p50Ms) +
+          card("Scan p95 (ms)", kpis.scanPerformance.p95Ms) +
+          card("Fallback Rate", fallbackRate + "%") +
+          card("Avg Confidence", avgConfidence + "%") +
+          card("Synced", kpis.syncHealth.synced) +
+          card("Pending Sync", kpis.syncHealth.pending_sync) +
+          card("Sync Failed", kpis.syncHealth.sync_failed);
+        raw.textContent = JSON.stringify(kpis, null, 2);
+      }
+
+      async function loadKpis() {
+        const hours = windowHours.value;
+        const response = await fetch("/api/admin/kpis?windowHours=" + encodeURIComponent(hours));
+        const payload = await response.json();
+        render(payload.kpis || {});
+      }
+
+      async function runBackfill() {
+        const response = await fetch("/api/admin/backfill/sync-state", { method: "POST" });
+        const payload = await response.json();
+        alert("Backfill complete: " + payload.updatedCount + " rows updated");
+        loadKpis();
+      }
+
+      function scheduleRefresh() {
+        if (refreshTimer) return;
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          loadKpis();
+        }, 500);
+      }
+
+      refreshBtn.addEventListener("click", loadKpis);
+      backfillBtn.addEventListener("click", runBackfill);
+      windowHours.addEventListener("change", loadKpis);
+      if (typeof EventSource !== "undefined") {
+        const events = new EventSource("/api/events/stream?scope=admin");
+        events.addEventListener("sync.ack", scheduleRefresh);
+        events.addEventListener("application.status_changed", scheduleRefresh);
+        events.addEventListener("batch.progress", scheduleRefresh);
+      }
+      loadKpis();
     </script>
   </body>
 </html>`);

@@ -45,7 +45,13 @@ scannerRouter.post("/api/scanner/quick-check", upload.single("photo"), async (re
 
     const hasExpectedFields = Object.values(expected).some((value) => value !== undefined && value !== "");
 
+    const startedAt = Date.now();
     const result = await scannerService.quickCheck(req.file.buffer, hasExpectedFields ? expected : undefined);
+    const processingMs = Date.now() - startedAt;
+    const resultWithTiming = {
+      ...result,
+      processingMs
+    };
 
     let applicationId = typeof req.body.applicationId === "string" ? req.body.applicationId : undefined;
     if (!applicationId) {
@@ -53,12 +59,13 @@ scannerRouter.post("/api/scanner/quick-check", upload.single("photo"), async (re
       applicationId = created.applicationId;
     }
 
-    await complianceService.recordScannerQuickCheck(applicationId, result, hasExpectedFields ? expected : undefined);
+    await complianceService.recordScannerQuickCheck(applicationId, resultWithTiming, hasExpectedFields ? expected : undefined);
+    const expectsClientCrdtSync = req.headers["x-alcomatcher-client-sync"] === "crdt";
     await complianceService.mergeClientSync(applicationId, {
-      syncState: "pending_sync"
+      syncState: expectsClientCrdtSync ? "pending_sync" : "synced"
     });
 
-    return res.json({ applicationId, ...result, request_id: requestId });
+    return res.json({ applicationId, ...resultWithTiming, request_id: requestId });
   } catch (error) {
     if (error instanceof multer.MulterError) {
       const errorCode = error.code === "LIMIT_FILE_SIZE" ? "photo_too_large" : "upload_failed";

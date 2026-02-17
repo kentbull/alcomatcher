@@ -347,6 +347,97 @@ export class EventStore {
       errorReason: row.error_reason ?? undefined
     }));
   }
+
+  async backfillPendingSyncToSynced(): Promise<number> {
+    const { rowCount } = await this.pool.query(
+      `
+      UPDATE compliance_applications
+      SET sync_state = 'synced',
+          updated_at = NOW()
+      WHERE sync_state = 'pending_sync'
+      `
+    );
+    return rowCount ?? 0;
+  }
+
+  async getSyncStateCounts(): Promise<Record<ComplianceApplicationDoc["syncState"], number>> {
+    const { rows } = await this.pool.query<{
+      sync_state: ComplianceApplicationDoc["syncState"];
+      count: string;
+    }>(
+      `
+      SELECT sync_state, COUNT(*)::text AS count
+      FROM compliance_applications
+      GROUP BY sync_state
+      `
+    );
+
+    const counts: Record<ComplianceApplicationDoc["syncState"], number> = {
+      synced: 0,
+      pending_sync: 0,
+      sync_failed: 0
+    };
+    for (const row of rows) {
+      counts[row.sync_state] = Number(row.count);
+    }
+    return counts;
+  }
+
+  async getStatusCounts(): Promise<Record<ComplianceApplicationDoc["status"], number>> {
+    const { rows } = await this.pool.query<{
+      current_status: ComplianceApplicationDoc["status"];
+      count: string;
+    }>(
+      `
+      SELECT current_status, COUNT(*)::text AS count
+      FROM compliance_applications
+      GROUP BY current_status
+      `
+    );
+
+    const counts = {
+      captured: 0,
+      scanned: 0,
+      matched: 0,
+      approved: 0,
+      rejected: 0,
+      needs_review: 0,
+      batch_received: 0,
+      batch_processing: 0,
+      batch_partially_failed: 0,
+      batch_completed: 0
+    };
+    for (const row of rows) {
+      counts[row.current_status] = Number(row.count);
+    }
+    return counts;
+  }
+
+  async listRecentQuickCheckMetrics(hours = 24): Promise<Array<{ confidence: number; usedFallback: boolean; processingMs?: number }>> {
+    const { rows } = await this.pool.query<{
+      payload: {
+        confidence?: number;
+        usedFallback?: boolean;
+        processingMs?: number;
+      };
+    }>(
+      `
+      SELECT payload
+      FROM application_events
+      WHERE event_type = 'ScannerQuickCheckRecorded'
+        AND created_at >= NOW() - ($1::text || ' hours')::interval
+      ORDER BY created_at DESC
+      LIMIT 5000
+      `,
+      [String(hours)]
+    );
+
+    return rows.map((row) => ({
+      confidence: typeof row.payload?.confidence === "number" ? row.payload.confidence : 0,
+      usedFallback: Boolean(row.payload?.usedFallback),
+      processingMs: typeof row.payload?.processingMs === "number" ? row.payload.processingMs : undefined
+    }));
+  }
 }
 
 export const eventStore = new EventStore();

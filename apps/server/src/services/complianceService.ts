@@ -25,9 +25,31 @@ interface ComplianceReport {
   eventTimeline: ComplianceEvent[];
 }
 
+interface KpiSummary {
+  generatedAt: string;
+  windowHours: number;
+  totals: {
+    applications: number;
+    quickChecks: number;
+  };
+  scanPerformance: {
+    p50Ms: number;
+    p95Ms: number;
+    fallbackRate: number;
+    avgConfidence: number;
+  };
+  syncHealth: {
+    synced: number;
+    pending_sync: number;
+    sync_failed: number;
+  };
+  statusCounts: Record<ComplianceApplicationDoc["status"], number>;
+}
+
 interface ScannerQuickCheckEventPayload {
   summary: ScannerQuickCheckResult["summary"];
   confidence: number;
+  processingMs?: number;
   provider: ScannerQuickCheckResult["provider"];
   usedFallback: boolean;
   extracted: ScannerQuickCheckResult["extracted"];
@@ -118,6 +140,7 @@ export class ComplianceService {
     await this.appendEvent(applicationId, "ScannerQuickCheckRecorded", {
       summary: result.summary,
       confidence: result.confidence,
+      processingMs: result.processingMs,
       provider: result.provider,
       usedFallback: result.usedFallback,
       expected: expected ?? null,
@@ -186,6 +209,7 @@ export class ComplianceService {
             extracted: latestQuickCheckPayload.extracted,
             checks: latestQuickCheckPayload.checks,
             confidence: latestQuickCheckPayload.confidence,
+            processingMs: latestQuickCheckPayload.processingMs,
             provider: latestQuickCheckPayload.provider,
             usedFallback: Boolean(latestQuickCheckPayload.usedFallback)
           }
@@ -243,6 +267,43 @@ export class ComplianceService {
       checks: projection?.latestQuickCheck?.checks ?? [],
       extracted: projection?.latestQuickCheck?.extracted ?? null,
       eventTimeline: timeline
+    };
+  }
+
+  async backfillPendingSyncToSynced() {
+    const updatedCount = await eventStore.backfillPendingSyncToSynced();
+    this.docs.clear();
+    return {
+      updatedCount,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async getKpiSummary(windowHours = 24): Promise<KpiSummary> {
+    const applications = await this.listApplications();
+    const syncHealth = await eventStore.getSyncStateCounts();
+    const statusCounts = await eventStore.getStatusCounts();
+    const quickChecks = await eventStore.listRecentQuickCheckMetrics(windowHours);
+
+    const processingValues = quickChecks.map((item) => item.processingMs).filter((value): value is number => typeof value === "number");
+    const fallbackCount = quickChecks.filter((item) => item.usedFallback).length;
+    const confidenceSum = quickChecks.reduce((sum, item) => sum + item.confidence, 0);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      windowHours,
+      totals: {
+        applications: applications.length,
+        quickChecks: quickChecks.length
+      },
+      scanPerformance: {
+        p50Ms: percentile(processingValues, 50),
+        p95Ms: percentile(processingValues, 95),
+        fallbackRate: quickChecks.length > 0 ? fallbackCount / quickChecks.length : 0,
+        avgConfidence: quickChecks.length > 0 ? confidenceSum / quickChecks.length : 0
+      },
+      syncHealth,
+      statusCounts
     };
   }
 
@@ -359,3 +420,10 @@ export class ComplianceService {
 }
 
 export const complianceService = new ComplianceService();
+
+function percentile(values: number[], pct: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil((pct / 100) * sorted.length) - 1));
+  return sorted[rank];
+}

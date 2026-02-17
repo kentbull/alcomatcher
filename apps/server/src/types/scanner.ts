@@ -30,6 +30,7 @@ export interface ScannerQuickCheckResult {
   confidence: number;
   provider: OcrResult["provider"];
   usedFallback: boolean;
+  processingMs?: number;
 }
 
 export interface ExpectedLabelFields {
