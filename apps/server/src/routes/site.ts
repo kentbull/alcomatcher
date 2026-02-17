@@ -349,7 +349,14 @@ siteRouter.get("/scanner", (_req, res) => {
         color: var(--ink);
         background: var(--bg);
       }
-      .wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px 32px; }
+      .wrap {
+        max-width: 820px;
+        margin: 0 auto;
+        padding:
+          calc(16px + env(safe-area-inset-top))
+          16px
+          calc(24px + env(safe-area-inset-bottom));
+      }
       .card {
         background: var(--card);
         border: 1px solid rgba(233, 201, 150, 0.25);
@@ -664,7 +671,14 @@ siteRouter.get("/admin/queue", (_req, res) => {
         --card: rgba(25, 16, 12, 0.62);
       }
       body { margin: 0; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--ink); }
-      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 30px; }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding:
+          calc(16px + env(safe-area-inset-top))
+          16px
+          calc(24px + env(safe-area-inset-bottom));
+      }
       .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
       select, button {
         min-height: 40px;
@@ -689,7 +703,32 @@ siteRouter.get("/admin/queue", (_req, res) => {
         font-size: 0.95rem;
       }
       th { background: rgba(225, 181, 110, 0.25); color: #ffe5b6; }
+      .table-wrap { overflow-x: auto; border-radius: 12px; }
       .muted { opacity: 0.9; font-size: 0.93rem; margin-top: 8px; color: rgba(247, 232, 205, 0.84); }
+      .loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #ffe2ae;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 232, 194, 0.35);
+        border-top-color: #f4c06f;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .err {
+        display: none;
+        margin-bottom: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(160, 46, 36, 0.2);
+        border: 1px solid rgba(194, 75, 63, 0.4);
+      }
       .links a { color: #f6ddb2; text-decoration: none; font-weight: 700; }
       td a { color: #f8d9a2; }
     </style>
@@ -712,25 +751,31 @@ siteRouter.get("/admin/queue", (_req, res) => {
         <a href="/admin/batches" style="text-decoration:none"><button type="button">Batch Drill-Down</button></a>
         <a href="/admin/dashboard" style="text-decoration:none"><button type="button">Open KPI Dashboard</button></a>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Application</th>
-            <th>Status</th>
-            <th>Sync</th>
-            <th>Summary</th>
-            <th>Confidence</th>
-            <th>Updated</th>
-            <th>Report</th>
-          </tr>
-        </thead>
-        <tbody id="queueRows"></tbody>
-      </table>
+      <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading queue...</span></div>
+      <div id="error" class="err"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Status</th>
+              <th>Sync</th>
+              <th>Summary</th>
+              <th>Confidence</th>
+              <th>Updated</th>
+              <th>Report</th>
+            </tr>
+          </thead>
+          <tbody id="queueRows"></tbody>
+        </table>
+      </div>
       <p class="muted">Admin view is live-backed by event projections and compliance report endpoints.</p>
       <p class="links"><a href="/">← Back to Home</a></p>
     </main>
     <script>
       const queueRows = document.getElementById("queueRows");
+      const loading = document.getElementById("loading");
+      const errorBox = document.getElementById("error");
       const refreshBtn = document.getElementById("refreshBtn");
       const statusFilter = document.getElementById("statusFilter");
       let refreshTimer = null;
@@ -759,12 +804,25 @@ siteRouter.get("/admin/queue", (_req, res) => {
       async function loadQueue() {
         const status = statusFilter.value;
         const url = status ? "/api/admin/queue?status=" + encodeURIComponent(status) : "/api/admin/queue";
+        loading.style.display = "inline-flex";
+        errorBox.style.display = "none";
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Loading...";
         try {
           const response = await fetch(url);
+          if (!response.ok) throw new Error("Unable to load queue right now.");
           const payload = await response.json();
           renderRows((payload && payload.queue) ? payload.queue : []);
         } catch (error) {
-          queueRows.innerHTML = "<tr><td colspan='7'>Failed to load queue.</td></tr>";
+          queueRows.innerHTML = "<tr><td colspan='7'>Unable to load queue.</td></tr>";
+          errorBox.style.display = "block";
+          errorBox.innerHTML = "Queue unavailable. <button id='retryQueueBtn' type='button' style='margin-left:8px;min-height:36px;border-radius:8px;border:none;padding:6px 10px;background:#c08a3c;color:#24150d;font-weight:700'>Retry</button>";
+          const retryBtn = document.getElementById("retryQueueBtn");
+          if (retryBtn) retryBtn.addEventListener("click", loadQueue);
+        } finally {
+          loading.style.display = "none";
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh Queue";
         }
       }
 
@@ -810,7 +868,14 @@ siteRouter.get("/admin/report/:applicationId", (req, res) => {
       }
       * { box-sizing: border-box; }
       body { margin: 0; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--ink); }
-      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 28px; }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding:
+          calc(16px + env(safe-area-inset-top))
+          16px
+          calc(24px + env(safe-area-inset-bottom));
+      }
       .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
       .btn {
         display: inline-flex;
@@ -858,6 +923,7 @@ siteRouter.get("/admin/report/:applicationId", (req, res) => {
       }
       th, td { text-align: left; padding: 9px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.92rem; vertical-align: top; }
       th { background: rgba(225, 181, 110, 0.2); color: #ffe4b1; }
+      .table-wrap { overflow-x: auto; border-radius: 12px; }
       details {
         margin-top: 10px;
         background: rgba(23, 15, 11, 0.45);
@@ -915,20 +981,22 @@ siteRouter.get("/admin/report/:applicationId", (req, res) => {
         <section class="grid" id="summaryCards"></section>
         <section style="margin-top:12px">
           <h2>Itemized Compliance Checks</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Check</th>
-                <th>Status</th>
-                <th>Severity</th>
-                <th>Rule</th>
-                <th>Evidence</th>
-                <th>Citation</th>
-                <th>Failure Reason</th>
-              </tr>
-            </thead>
-            <tbody id="checkRows"></tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Check</th>
+                  <th>Status</th>
+                  <th>Severity</th>
+                  <th>Rule</th>
+                  <th>Evidence</th>
+                  <th>Citation</th>
+                  <th>Failure Reason</th>
+                </tr>
+              </thead>
+              <tbody id="checkRows"></tbody>
+            </table>
+          </div>
         </section>
         <section style="margin-top:12px" class="card">
           <h2>Extracted Fields</h2>
@@ -936,10 +1004,12 @@ siteRouter.get("/admin/report/:applicationId", (req, res) => {
         </section>
         <section style="margin-top:12px">
           <h2>Event Timeline</h2>
-          <table>
-            <thead><tr><th>When</th><th>Event</th><th>Notes</th></tr></thead>
-            <tbody id="timelineRows"></tbody>
-          </table>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>Event</th><th>Notes</th></tr></thead>
+              <tbody id="timelineRows"></tbody>
+            </table>
+          </div>
         </section>
         <details>
           <summary>Developer Tools</summary>
@@ -1123,6 +1193,29 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
       }
       summary { cursor: pointer; font-weight: 700; color: #ffe3af; }
       .nav a { text-decoration: none; font-weight: 700; color: #f3d9ab; }
+      .loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #ffe2ae;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 232, 194, 0.35);
+        border-top-color: #f4c06f;
+        animation: spin 0.8s linear infinite;
+      }
+      .err {
+        display: none;
+        margin-bottom: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(160, 46, 36, 0.2);
+        border: 1px solid rgba(194, 75, 63, 0.4);
+      }
     </style>
   </head>
   <body>
@@ -1138,6 +1231,8 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
         <button id="refreshBtn" type="button">Refresh KPIs</button>
         <button id="backfillBtn" type="button">Backfill pending_sync -> synced</button>
       </div>
+      <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading KPI dashboard...</span></div>
+      <div id="error" class="err"></div>
       <section class="cards" id="kpiCards"></section>
       <details>
         <summary>Developer Tools</summary>
@@ -1147,6 +1242,8 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
     </main>
     <script>
       const kpiCards = document.getElementById("kpiCards");
+      const loading = document.getElementById("loading");
+      const errorBox = document.getElementById("error");
       const raw = document.getElementById("raw");
       const windowHours = document.getElementById("windowHours");
       const refreshBtn = document.getElementById("refreshBtn");
@@ -1175,9 +1272,25 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
 
       async function loadKpis() {
         const hours = windowHours.value;
-        const response = await fetch("/api/admin/kpis?windowHours=" + encodeURIComponent(hours));
-        const payload = await response.json();
-        render(payload.kpis || {});
+        loading.style.display = "inline-flex";
+        errorBox.style.display = "none";
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Loading...";
+        try {
+          const response = await fetch("/api/admin/kpis?windowHours=" + encodeURIComponent(hours));
+          if (!response.ok) throw new Error("Unable to load KPIs.");
+          const payload = await response.json();
+          render(payload.kpis || {});
+        } catch (_error) {
+          errorBox.style.display = "block";
+          errorBox.innerHTML = "KPI dashboard unavailable. <button id='retryKpiBtn' type='button' style='margin-left:8px;min-height:36px;border-radius:8px;border:none;padding:6px 10px;background:#c08a3c;color:#24150d;font-weight:700'>Retry</button>";
+          const retryBtn = document.getElementById("retryKpiBtn");
+          if (retryBtn) retryBtn.addEventListener("click", loadKpis);
+        } finally {
+          loading.style.display = "none";
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh KPIs";
+        }
       }
 
       async function runBackfill() {
@@ -1220,7 +1333,14 @@ siteRouter.get("/admin/batches", (_req, res) => {
     <style>
       :root { --bg:linear-gradient(155deg, #6b4b36 0%, #50392b 40%, #30231b 100%); --card:rgba(24,15,11,0.62); --ink:#f4e4c8; --accent:#c08a3c; }
       body { margin:0; font-family:"Avenir Next","Segoe UI","Trebuchet MS",sans-serif; background:var(--bg); color:var(--ink); }
-      .wrap { max-width:1200px; margin:0 auto; padding:20px 16px 28px; }
+      .wrap {
+        max-width:1200px;
+        margin:0 auto;
+        padding:
+          calc(16px + env(safe-area-inset-top))
+          16px
+          calc(24px + env(safe-area-inset-bottom));
+      }
       .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
       button, select { min-height:40px; border-radius:10px; border:1px solid rgba(239,206,156,0.28); padding:8px 10px; background:rgba(255,251,244,0.96); }
       button { background:var(--accent); color:#24150d; border:none; font-weight:700; }
@@ -1236,6 +1356,29 @@ siteRouter.get("/admin/batches", (_req, res) => {
       .detail-line { margin-bottom: 6px; color: rgba(247, 231, 204, 0.95); }
       details { margin-top:10px; background:rgba(23,15,11,0.45); border:1px solid rgba(236,203,151,0.2); border-radius:10px; padding:10px; }
       summary { cursor:pointer; font-weight:700; color:#ffe2af; }
+      .loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #ffe2ae;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 232, 194, 0.35);
+        border-top-color: #f4c06f;
+        animation: spin 0.8s linear infinite;
+      }
+      .err {
+        display:none;
+        margin-bottom:10px;
+        padding:10px;
+        border-radius:10px;
+        background:rgba(160,46,36,0.2);
+        border:1px solid rgba(194,75,63,0.4);
+      }
       .nav a { color:#f3d9ab; text-decoration:none; font-weight:700; }
     </style>
   </head>
@@ -1247,6 +1390,8 @@ siteRouter.get("/admin/batches", (_req, res) => {
         <select id="batchSelect"></select>
         <button id="refreshBtn" type="button">Refresh</button>
       </div>
+      <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading batches...</span></div>
+      <div id="error" class="err"></div>
       <section class="grid">
         <article class="panel">
           <h3>Batch Items (click a line item)</h3>
@@ -1271,6 +1416,8 @@ siteRouter.get("/admin/batches", (_req, res) => {
     </main>
     <script>
       const batchSelect = document.getElementById("batchSelect");
+      const loading = document.getElementById("loading");
+      const errorBox = document.getElementById("error");
       const itemRows = document.getElementById("itemRows");
       const itemDetail = document.getElementById("itemDetail");
       const attempts = document.getElementById("attempts");
@@ -1353,9 +1500,24 @@ siteRouter.get("/admin/batches", (_req, res) => {
       }
 
       async function refreshAll() {
-        await loadBatches();
-        await loadItems();
-        wireRowClicks();
+        loading.style.display = "inline-flex";
+        errorBox.style.display = "none";
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Loading...";
+        try {
+          await loadBatches();
+          await loadItems();
+          wireRowClicks();
+        } catch (_error) {
+          errorBox.style.display = "block";
+          errorBox.innerHTML = "Batch data unavailable. <button id='retryBatchBtn' type='button' style='margin-left:8px;min-height:36px;border-radius:8px;border:none;padding:6px 10px;background:#c08a3c;color:#24150d;font-weight:700'>Retry</button>";
+          const retryBtn = document.getElementById("retryBatchBtn");
+          if (retryBtn) retryBtn.addEventListener("click", refreshAll);
+        } finally {
+          loading.style.display = "none";
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh";
+        }
       }
 
       function scheduleRefresh() {
