@@ -155,6 +155,7 @@ function App() {
   const expansionTimerRef = useRef<number | null>(null);
 
   const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
+  const isNativeIos = useMemo(() => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios", []);
   const frontReady = images.some((image) => image.role === "front" && image.uploadState === "ready");
   const backReady = images.some((image) => image.role === "back" && image.uploadState === "ready");
   const canFinalize = frontReady && backReady && !finalizing;
@@ -564,14 +565,18 @@ function App() {
                 </p>
                 {previewError ? <p className="preview-warning">Preview fallback: {previewError}</p> : null}
               </IonText>
-              <div className="step-row" role="status" aria-live="polite">
-                <span className={`step-pill ${capturePhase === "front" ? "is-active" : frontReady ? "is-done" : ""}`}>Front</span>
-                <span className={`step-pill ${capturePhase === "back" ? "is-active" : backReady ? "is-done" : ""}`}>Back</span>
-                <span className={`step-pill ${capturePhase === "additional" ? "is-active" : ""}`}>Additional</span>
-              </div>
-              <div className="lens-frame">
-                <div className="lens-reticle" />
-              </div>
+              {isNativeIos ? null : (
+                <>
+                  <div className="step-row" role="status" aria-live="polite">
+                    <span className={`step-pill ${capturePhase === "front" ? "is-active" : frontReady ? "is-done" : ""}`}>Front</span>
+                    <span className={`step-pill ${capturePhase === "back" ? "is-active" : backReady ? "is-done" : ""}`}>Back</span>
+                    <span className={`step-pill ${capturePhase === "additional" ? "is-active" : ""}`}>Additional</span>
+                  </div>
+                  <div className="lens-frame">
+                    <div className="lens-reticle" />
+                  </div>
+                </>
+              )}
             </section>
 
             <input

@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="AlcoMatcher Crest">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2b180f"/>
+      <stop offset="100%" stop-color="#5b2f1a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0cf77"/>
+      <stop offset="100%" stop-color="#c89434"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7e0a4"/>
+      <stop offset="100%" stop-color="#d8ab53"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#bg)"/>
+
+  <circle cx="512" cy="512" r="404" fill="none" stroke="url(#gold)" stroke-width="26" opacity="0.95"/>
+  <circle cx="512" cy="512" r="360" fill="none" stroke="#f7dfab" stroke-width="6" opacity="0.75"/>
+
+  <g filter="url(#softShadow)">
+    <path d="M512 234 L712 320 V510 C712 665 614 772 512 822 C410 772 312 665 312 510 V320 Z"
+          fill="url(#shield)" stroke="#7f4f1f" stroke-width="20"/>
+    <path d="M512 234 V822" stroke="#7f4f1f" stroke-width="16" opacity="0.75"/>
+    <path d="M312 460 H712" stroke="#7f4f1f" stroke-width="16" opacity="0.75"/>
+  </g>
+
+  <g fill="none" stroke="#8c5723" stroke-width="14" stroke-linecap="round">
+    <path d="M440 628 C454 570 486 528 512 506"/>
+    <path d="M584 628 C570 570 538 528 512 506"/>
+    <path d="M512 506 V700"/>
+  </g>
+
+  <g fill="url(#gold)" stroke="#8c5723" stroke-width="5">
+    <path d="M500 428 L512 404 L524 428 L512 450 Z"/>
+    <path d="M458 392 L470 368 L482 392 L470 414 Z"/>
+    <path d="M542 392 L554 368 L566 392 L554 414 Z"/>
+    <path d="M414 430 L426 406 L438 430 L426 452 Z"/>
+    <path d="M586 430 L598 406 L610 430 L598 452 Z"/>
+  </g>
+
+  <text x="512" y="150" text-anchor="middle" fill="#f3d89f" font-size="64" font-family="Georgia, 'Times New Roman', serif" letter-spacing="8">ALCOMATCHER</text>
+</svg>

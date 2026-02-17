@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="AlcoMatcher Glyph">
+  <rect width="1024" height="1024" rx="220" fill="#3a1f13"/>
+  <path d="M512 226 L728 320 V516 C728 680 620 792 512 848 C404 792 296 680 296 516 V320 Z" fill="#e2bb73" stroke="#7d4c1d" stroke-width="28"/>
+  <path d="M512 226 V848" stroke="#7d4c1d" stroke-width="20" opacity="0.8"/>
+  <path d="M296 470 H728" stroke="#7d4c1d" stroke-width="20" opacity="0.8"/>
+</svg>
