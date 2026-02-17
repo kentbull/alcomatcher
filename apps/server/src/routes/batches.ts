@@ -1,6 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { requireManager } from "../middleware/auth.js";
 import { batchService } from "../services/batchService.js";
 import type { BatchItemInput } from "../types/batch.js";
 
@@ -25,6 +26,8 @@ const upload = multer({
 });
 
 export const batchRouter = Router();
+
+batchRouter.use("/api/batches", requireManager);
 
 function parseCsvManifest(csvBuffer: Buffer): BatchItemInput[] {
   const lines = csvBuffer

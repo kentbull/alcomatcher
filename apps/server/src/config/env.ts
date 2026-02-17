@@ -9,7 +9,18 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   DATABASE_URL: z.string().default("postgres://alcomatcher:alcomatcher@db:5432/alcomatcher"),
   REDIS_URL: z.string().default("redis://redis:6379"),
-  CORS_ORIGIN: z.string().default("http://localhost:8100")
+  CORS_ORIGIN: z.string().default("http://localhost:8100"),
+  JWT_SECRET: z.string().default("dev-only-change-me"),
+  JWT_EXPIRES_HOURS: z.coerce.number().default(8),
+  OTP_TTL_MINUTES: z.coerce.number().default(10),
+  OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
+  AUTH_DEBUG_OTP: z
+    .string()
+    .optional()
+    .transform((value) => value === undefined || value === "true"),
+  AUTH_SEED_USERS: z
+    .string()
+    .default("officer@alcomatcher.com:compliance_officer;manager@alcomatcher.com:compliance_manager")
 });
 
 export const env = envSchema.parse(process.env);

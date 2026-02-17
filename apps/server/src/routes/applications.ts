@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { requireAuth, requireManager } from "../middleware/auth.js";
 import { complianceService } from "../services/complianceService.js";
 
 const createSchema = z.object({
@@ -55,15 +56,26 @@ const appendCrdtOpsSchema = z.object({
 
 export const applicationRouter = Router();
 
+applicationRouter.use("/api/admin", requireManager);
+applicationRouter.use("/api/applications", requireAuth);
+
 applicationRouter.post("/api/applications", async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const created = await complianceService.createApplication(parsed.data.regulatoryProfile, parsed.data.submissionType);
+  const created = await complianceService.createApplication(parsed.data.regulatoryProfile, parsed.data.submissionType, req.authUser?.userId);
   return res.status(201).json(created);
 });
 
 applicationRouter.post("/api/applications/:applicationId/sync", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
+
   const parsed = syncSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -74,6 +86,14 @@ applicationRouter.post("/api/applications/:applicationId/sync", async (req, res)
 });
 
 applicationRouter.post("/api/applications/:applicationId/crdt-ops", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
+
   const parsed = appendCrdtOpsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -91,6 +111,14 @@ applicationRouter.post("/api/applications/:applicationId/crdt-ops", async (req, 
 });
 
 applicationRouter.get("/api/applications/:applicationId/crdt-ops", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
+
   const afterSequenceRaw = typeof req.query.afterSequence === "string" ? Number(req.query.afterSequence) : 0;
   const afterSequence = Number.isFinite(afterSequenceRaw) && afterSequenceRaw >= 0 ? afterSequenceRaw : 0;
 
@@ -105,14 +133,35 @@ applicationRouter.get("/api/applications/:applicationId/crdt-ops", async (req, r
 });
 
 applicationRouter.get("/api/applications", async (_req, res) => {
-  return res.json({ applications: await complianceService.listApplications() });
+  if (!_req.authUser) return res.status(401).json({ error: "auth_required" });
+  return res.json({
+    applications: await complianceService.listApplicationsForActor({
+      userId: _req.authUser.userId,
+      role: _req.authUser.role
+    })
+  });
 });
 
 applicationRouter.get("/api/applications/:applicationId/events", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
   return res.json({ events: await complianceService.getEvents(req.params.applicationId) });
 });
 
 applicationRouter.get("/api/applications/:applicationId/projection", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
+
   const projection = await complianceService.getProjection(req.params.applicationId);
   if (!projection) return res.status(404).json({ error: "application_not_found" });
 
@@ -120,6 +169,14 @@ applicationRouter.get("/api/applications/:applicationId/projection", async (req,
 });
 
 applicationRouter.get("/api/applications/:applicationId/report", async (req, res) => {
+  const actor = req.authUser;
+  if (!actor) return res.status(401).json({ error: "auth_required" });
+  const canAccess = await complianceService.canActorAccessApplication(req.params.applicationId, {
+    userId: actor.userId,
+    role: actor.role
+  });
+  if (!canAccess) return res.status(403).json({ error: "forbidden_application_access" });
+
   const report = await complianceService.buildComplianceReport(req.params.applicationId);
   if (!report) return res.status(404).json({ error: "application_not_found" });
 

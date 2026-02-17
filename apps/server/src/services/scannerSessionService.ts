@@ -27,6 +27,7 @@ interface ScanSessionImage {
 interface ScanSession {
   sessionId: string;
   applicationId: string;
+  ownerUserId?: string;
   status: ScanSessionStatus;
   createdAt: string;
   updatedAt: string;
@@ -39,12 +40,13 @@ export class ScannerSessionService {
   private readonly scannerService = new ScannerService();
   private readonly sessions = new Map<string, ScanSession>();
 
-  async createSession() {
-    const app = await complianceService.createApplication("distilled_spirits", "single");
+  async createSession(ownerUserId?: string) {
+    const app = await complianceService.createApplication("distilled_spirits", "single", ownerUserId);
     const now = new Date();
     const session: ScanSession = {
       sessionId: randomUUID(),
       applicationId: app.applicationId,
+      ownerUserId,
       status: "draft_scan_started",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),

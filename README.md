@@ -46,6 +46,23 @@ Scanner-first, offline-first compliance platform foundation for week one.
 - Pull operations after a sequence:
   - `GET /api/applications/:applicationId/crdt-ops?afterSequence=10`
 
+## Authentication + Roles
+- Auth model: email OTP + JWT.
+- Seed users are configured by `AUTH_SEED_USERS`:
+  - default: `officer@alcomatcher.com:compliance_officer;manager@alcomatcher.com:compliance_manager`
+- Request OTP:
+  - `POST /api/auth/otp/request`
+  - body: `{ "email": "officer@alcomatcher.com" }`
+- Verify OTP:
+  - `POST /api/auth/otp/verify`
+  - body: `{ "email": "officer@alcomatcher.com", "code": "123456" }`
+  - returns `{ token, user }` and sets `alcomatcher_token` httpOnly cookie.
+- Current prototype behavior:
+  - scanner quick-check remains anonymous-capable.
+  - admin APIs (`/api/admin/*`, `/api/batches*`, `/admin/*`) require `compliance_manager`.
+  - application data APIs require auth and are ownership-scoped for officers.
+- In non-production mode, OTP response includes `debugCode` for local testing (`AUTH_DEBUG_OTP=true`).
+
 ## Batch and Admin APIs (Week-One Foundation)
 - Batch ingestion (JSON items, or multipart with optional `archive` ZIP + `manifest` CSV):
   - `POST /api/batches`

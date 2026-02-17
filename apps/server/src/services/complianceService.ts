@@ -63,7 +63,7 @@ export class ComplianceService {
   private readonly events = new Map<string, ComplianceEvent[]>();
   private readonly crdtOps = new Map<string, CrdtOperation[]>();
 
-  async createApplication(regulatoryProfile: RegulatoryProfile, submissionType: "single" | "batch") {
+  async createApplication(regulatoryProfile: RegulatoryProfile, submissionType: "single" | "batch", actorUserId?: string) {
     const applicationId = randomUUID();
     const now = new Date().toISOString();
 
@@ -72,6 +72,8 @@ export class ComplianceService {
       documentId: randomUUID(),
       regulatoryProfile,
       submissionType,
+      createdByUserId: actorUserId,
+      assignedToUserId: actorUserId,
       status: submissionType === "batch" ? "batch_received" : "captured",
       checks: [],
       syncState: "pending_sync",
@@ -81,6 +83,7 @@ export class ComplianceService {
     await this.appendEvent(applicationId, "ApplicationCreated", {
       regulatoryProfile,
       submissionType,
+      actorUserId: actorUserId ?? null,
       syncState: doc.syncState
     });
     const created = await this.refreshDocFromEvents(doc, { preserveChecks: true });
@@ -171,6 +174,18 @@ export class ComplianceService {
     return Array.from(this.docs.values());
   }
 
+  async listApplicationsForActor(actor: { userId: string; role: "compliance_officer" | "compliance_manager" }) {
+    const applications = await this.listApplications();
+    if (actor.role === "compliance_manager") return applications;
+
+    const accessible: ComplianceApplicationDoc[] = [];
+    for (const app of applications) {
+      const hasAccess = await this.canActorAccessApplication(app.applicationId, actor);
+      if (hasAccess) accessible.push(app);
+    }
+    return accessible;
+  }
+
   async getEvents(applicationId: string) {
     try {
       const persisted = await eventStore.getEvents(applicationId);
@@ -195,6 +210,16 @@ export class ComplianceService {
 
     const events = await this.getEvents(applicationId);
     return projectApplication(applicationId, events, doc, doc.status);
+  }
+
+  async canActorAccessApplication(
+    applicationId: string,
+    actor: { userId: string; role: "compliance_officer" | "compliance_manager" }
+  ): Promise<boolean> {
+    if (actor.role === "compliance_manager") return true;
+    const ownerUserId = await this.getApplicationOwnerUserId(applicationId);
+    if (!ownerUserId) return false;
+    return ownerUserId === actor.userId;
   }
 
   async getApplication(applicationId: string): Promise<ComplianceApplicationDoc | null> {
@@ -388,6 +413,13 @@ export class ComplianceService {
     } catch {
       // Keep local state even if persistence is temporarily unavailable.
     }
+  }
+
+  private async getApplicationOwnerUserId(applicationId: string): Promise<string | null> {
+    const events = await this.getEvents(applicationId);
+    const created = events.find((entry) => entry.eventType === "ApplicationCreated");
+    const owner = created?.payload?.actorUserId;
+    return typeof owner === "string" && owner.length > 0 ? owner : null;
   }
 
   private async refreshDocFromEvents(doc: ComplianceApplicationDoc, options?: { preserveChecks?: boolean }) {

@@ -16,6 +16,9 @@ export interface ComplianceApplicationDoc {
   documentId: string;
   regulatoryProfile: RegulatoryProfile;
   submissionType: "single" | "batch";
+  createdByUserId?: string;
+  assignedToUserId?: string;
+  lastDecidedByUserId?: string;
   status: ApplicationStatus;
   checks: ComplianceCheck[];
   syncState: "synced" | "pending_sync" | "sync_failed";

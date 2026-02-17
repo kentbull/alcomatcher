@@ -117,8 +117,18 @@ scannerRouter.post(
       };
 
       let applicationId = typeof req.body.applicationId === "string" ? req.body.applicationId : undefined;
+      const actor = req.authUser;
+      if (applicationId && actor) {
+        const canAccess = await complianceService.canActorAccessApplication(applicationId, {
+          userId: actor.userId,
+          role: actor.role
+        });
+        if (!canAccess) {
+          return res.status(403).json({ error: "forbidden_application_access", request_id: requestId });
+        }
+      }
       if (!applicationId) {
-        const created = await complianceService.createApplication("distilled_spirits", "single");
+        const created = await complianceService.createApplication("distilled_spirits", "single", actor?.userId);
         applicationId = created.applicationId;
       }
 
@@ -160,7 +170,7 @@ scannerRouter.post(
 );
 
 scannerRouter.post("/api/scanner/sessions", async (_req, res) => {
-  const session = await scannerSessionService.createSession();
+  const session = await scannerSessionService.createSession(_req.authUser?.userId);
   return res.status(201).json({
     sessionId: session.sessionId,
     applicationId: session.applicationId,
@@ -172,6 +182,10 @@ scannerRouter.post("/api/scanner/sessions", async (_req, res) => {
 scannerRouter.get("/api/scanner/sessions/:sessionId", (req, res) => {
   const session = scannerSessionService.getSession(req.params.sessionId);
   if (!session) return res.status(404).json({ error: "scan_session_not_found" });
+  if (session.ownerUserId && req.authUser?.role !== "compliance_manager" && req.authUser?.userId !== session.ownerUserId) {
+    return res.status(403).json({ error: "forbidden_session_access" });
+  }
+  if (session.ownerUserId && !req.authUser) return res.status(401).json({ error: "auth_required" });
   return res.json(session);
 });
 
@@ -185,6 +199,13 @@ scannerRouter.post("/api/scanner/sessions/:sessionId/images", uploadSingle.singl
     if (!roleResult.success) {
       return res.status(400).json({ error: "invalid_role", request_id: requestId });
     }
+    const session = scannerSessionService.getSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
+    if (session.ownerUserId && req.authUser?.role !== "compliance_manager" && req.authUser?.userId !== session.ownerUserId) {
+      return res.status(403).json({ error: "forbidden_session_access", request_id: requestId });
+    }
+    if (session.ownerUserId && !req.authUser) return res.status(401).json({ error: "auth_required", request_id: requestId });
+
     const role = roleResult.data as ScanImageRole;
     const indexRaw = typeof req.body.index === "string" ? Number(req.body.index) : undefined;
     const index = Number.isFinite(indexRaw) && indexRaw !== undefined && indexRaw >= 0 ? indexRaw : undefined;
@@ -216,6 +237,13 @@ scannerRouter.post("/api/scanner/sessions/:sessionId/images", uploadSingle.singl
 scannerRouter.post("/api/scanner/sessions/:sessionId/finalize", async (req, res) => {
     const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
     try {
+      const session = scannerSessionService.getSession(req.params.sessionId);
+      if (!session) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
+      if (session.ownerUserId && req.authUser?.role !== "compliance_manager" && req.authUser?.userId !== session.ownerUserId) {
+        return res.status(403).json({ error: "forbidden_session_access", request_id: requestId });
+      }
+      if (session.ownerUserId && !req.authUser) return res.status(401).json({ error: "auth_required", request_id: requestId });
+
       const expected = parseExpected(req.body as Record<string, unknown>);
       const stageTimings = parseStageTimings(req.body as Record<string, unknown>);
       const clientSyncMode = req.headers["x-alcomatcher-client-sync"] === "crdt" ? "crdt" : "direct";

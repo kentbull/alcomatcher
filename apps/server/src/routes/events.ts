@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { complianceService } from "../services/complianceService.js";
 import { realtimeEventBus, type RealtimeEventEnvelope } from "../services/realtimeEventBus.js";
 
 export const eventsRouter = Router();
@@ -10,6 +11,7 @@ function writeSseEvent(res: { write: (chunk: string) => void }, event: RealtimeE
 }
 
 eventsRouter.get("/api/events/stream", (req, res) => {
+  const authUser = req.authUser;
   const applicationId = typeof req.query.applicationId === "string" ? req.query.applicationId : undefined;
   const batchId = typeof req.query.batchId === "string" ? req.query.batchId : undefined;
   const scopeQuery = req.query.scope;
@@ -17,6 +19,13 @@ eventsRouter.get("/api/events/stream", (req, res) => {
     scopeQuery === "mobile" || scopeQuery === "admin" || scopeQuery === "all"
       ? scopeQuery
       : undefined;
+
+  if ((scope === "admin" || scope === "all") && authUser?.role !== "compliance_manager") {
+    return res.status(403).json({ error: "forbidden_role" });
+  }
+  if (!authUser && scope === "admin") {
+    return res.status(401).json({ error: "auth_required" });
+  }
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -34,15 +43,25 @@ eventsRouter.get("/api/events/stream", (req, res) => {
     }
   });
 
+  const handler = (event: RealtimeEventEnvelope) => {
+    if (authUser && authUser.role === "compliance_officer" && event.applicationId) {
+      void complianceService
+        .canActorAccessApplication(event.applicationId, { userId: authUser.userId, role: authUser.role })
+        .then((allowed) => {
+          if (allowed) writeSseEvent(res, event);
+        });
+      return;
+    }
+    writeSseEvent(res, event);
+  };
+
   const unsubscribe = realtimeEventBus.subscribe(
     {
       applicationId,
       batchId,
       scope
     },
-    (event) => {
-      writeSseEvent(res, event);
-    }
+    handler
   );
 
   const keepAlive = setInterval(() => {

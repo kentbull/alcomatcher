@@ -1,6 +1,17 @@
+import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 
 export const siteRouter = Router();
+
+function requireManagerHtml(req: Request, res: Response, next: NextFunction) {
+  if (!req.authUser) {
+    return res.status(401).type("html").send("<h1>401 Unauthorized</h1><p>Sign in as a compliance manager to access this page.</p>");
+  }
+  if (req.authUser.role !== "compliance_manager") {
+    return res.status(403).type("html").send("<h1>403 Forbidden</h1><p>Compliance manager access required.</p>");
+  }
+  next();
+}
 
 siteRouter.get("/", (_req, res) => {
   res.type("html").send(`<!doctype html>
@@ -135,6 +146,7 @@ siteRouter.get("/", (_req, res) => {
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="/scanner">Open Scanner</a>
+        <a class="btn btn-secondary" href="/login">Sign In</a>
         <a class="btn btn-secondary" href="/admin/queue">Open Admin Queue</a>
         <a class="btn btn-secondary" href="/admin/batches">Batch Drill-Down</a>
         <a class="btn btn-secondary" href="/admin/dashboard">KPI Dashboard</a>
@@ -157,6 +169,121 @@ siteRouter.get("/", (_req, res) => {
       <div class="hero-strap">Brewery-caliber clarity for field scans, admin review queues, and same-day decisions.</div>
       <footer>alcomatcher.com</footer>
     </main>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/login", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Sign In</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+        background: linear-gradient(165deg, #6f4f37 0%, #5a3c2d 36%, #3f2d24 72%, #2f211a 100%);
+        color: #f6e7cf;
+      }
+      .card {
+        width: min(92vw, 420px);
+        background: rgba(22, 14, 10, 0.55);
+        border: 1px solid rgba(236, 204, 151, 0.22);
+        border-radius: 14px;
+        padding: 18px;
+      }
+      h1 { margin: 0 0 10px; }
+      p { margin: 0 0 12px; opacity: 0.95; }
+      label { display: block; margin: 10px 0 6px; font-weight: 600; }
+      input {
+        width: 100%;
+        min-height: 42px;
+        border-radius: 10px;
+        border: 1px solid rgba(236, 204, 151, 0.32);
+        background: rgba(255, 248, 232, 0.94);
+        color: #2f1c14;
+        padding: 8px 10px;
+      }
+      .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+      button {
+        min-height: 42px;
+        border-radius: 10px;
+        border: 1px solid rgba(242, 216, 172, 0.2);
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary { background: linear-gradient(180deg, #e0b56e, #c89242); color: #1e110c; }
+      .muted { background: rgba(25, 15, 10, 0.34); color: #ffefcf; }
+      .status { margin-top: 12px; min-height: 20px; }
+      .code { margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      a { color: #ffdfab; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Sign In</h1>
+      <p>Use your compliance role email and OTP code.</p>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" value="manager@alcomatcher.com" />
+      <div class="row">
+        <button class="muted" id="requestBtn" type="button">Request OTP</button>
+      </div>
+      <label for="code">OTP Code</label>
+      <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" />
+      <div class="row">
+        <button class="primary" id="verifyBtn" type="button">Verify & Sign In</button>
+        <a href="/">Back Home</a>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="code" id="debugCode"></div>
+    </main>
+    <script>
+      const emailEl = document.getElementById("email");
+      const codeEl = document.getElementById("code");
+      const statusEl = document.getElementById("status");
+      const debugCodeEl = document.getElementById("debugCode");
+      document.getElementById("requestBtn").addEventListener("click", async () => {
+        statusEl.textContent = "Requesting OTP...";
+        debugCodeEl.textContent = "";
+        const response = await fetch("/api/auth/otp/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: emailEl.value.trim() })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = "OTP request failed.";
+          return;
+        }
+        statusEl.textContent = "OTP requested. Check your channel.";
+        if (payload.debugCode) {
+          debugCodeEl.textContent = "Debug OTP: " + payload.debugCode;
+          codeEl.value = payload.debugCode;
+        }
+      });
+      document.getElementById("verifyBtn").addEventListener("click", async () => {
+        statusEl.textContent = "Verifying...";
+        const response = await fetch("/api/auth/otp/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: emailEl.value.trim(), code: codeEl.value.trim() })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = "Verify failed. Check code and try again.";
+          return;
+        }
+        statusEl.textContent = "Signed in.";
+        const role = payload?.user?.role;
+        window.location.href = role === "compliance_manager" ? "/admin/queue" : "/scanner";
+      });
+    </script>
   </body>
 </html>`);
 });
@@ -656,7 +783,7 @@ siteRouter.get("/scanner", (_req, res) => {
   </body>
 </html>`);
 });
-siteRouter.get("/admin/queue", (_req, res) => {
+siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -848,7 +975,7 @@ siteRouter.get("/admin/queue", (_req, res) => {
 </html>`);
 });
 
-siteRouter.get("/admin/report/:applicationId", (req, res) => {
+siteRouter.get("/admin/report/:applicationId", requireManagerHtml, (req, res) => {
   const applicationId = req.params.applicationId;
   res.type("html").send(`<!doctype html>
 <html lang="en">
@@ -1148,7 +1275,7 @@ siteRouter.get("/admin/report/:applicationId", (req, res) => {
 </html>`);
 });
 
-siteRouter.get("/admin/dashboard", (_req, res) => {
+siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -1332,7 +1459,7 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
 </html>`);
 });
 
-siteRouter.get("/admin/batches", (_req, res) => {
+siteRouter.get("/admin/batches", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
