@@ -51,7 +51,22 @@ CREATE TABLE IF NOT EXISTS batch_items (
   image_filename TEXT NOT NULL,
   regulatory_profile TEXT NOT NULL DEFAULT 'distilled_spirits',
   status TEXT NOT NULL,
+  last_error_code TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
   error_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS batch_item_attempts (
+  attempt_id UUID PRIMARY KEY,
+  batch_item_id UUID NOT NULL REFERENCES batch_items(batch_item_id),
+  attempt_no INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  error_code TEXT,
+  error_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_batch_item_attempts_batch_item_id_created_at
+  ON batch_item_attempts(batch_item_id, created_at);

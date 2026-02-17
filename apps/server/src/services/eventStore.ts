@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { env } from "../config/env.js";
 import type { ApplicationStatus, ComplianceApplicationDoc, ComplianceEvent, CrdtOperation } from "../types/compliance.js";
-import type { BatchItemRecord, BatchJobRecord } from "../types/batch.js";
+import type { BatchItemAttemptRecord, BatchItemRecord, BatchJobRecord } from "../types/batch.js";
 
 export class EventStore {
   private readonly pool: Pool;
@@ -239,14 +239,18 @@ export class EventStore {
             image_filename,
             regulatory_profile,
             status,
+            last_error_code,
+            retry_count,
             error_reason,
             updated_at
           )
-          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, NOW())
+          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW())
           ON CONFLICT (batch_item_id)
           DO UPDATE SET
             regulatory_profile = EXCLUDED.regulatory_profile,
             status = EXCLUDED.status,
+            last_error_code = EXCLUDED.last_error_code,
+            retry_count = EXCLUDED.retry_count,
             error_reason = EXCLUDED.error_reason,
             updated_at = NOW()
           `,
@@ -257,6 +261,8 @@ export class EventStore {
             item.imageFilename,
             item.regulatoryProfile,
             item.status,
+            item.lastErrorCode ?? null,
+            item.retryCount,
             item.errorReason ?? null
           ]
         );
@@ -319,6 +325,8 @@ export class EventStore {
       image_filename: string;
       regulatory_profile: BatchItemRecord["regulatoryProfile"];
       status: BatchItemRecord["status"];
+      last_error_code: string | null;
+      retry_count: number;
       error_reason: string | null;
     }>(
       `
@@ -328,6 +336,8 @@ export class EventStore {
         image_filename,
         regulatory_profile,
         status,
+        last_error_code,
+        retry_count,
         error_reason
       FROM batch_items
       WHERE batch_id = $1::uuid
@@ -344,7 +354,112 @@ export class EventStore {
       imageFilename: row.image_filename,
       regulatoryProfile: row.regulatory_profile,
       status: row.status,
+      lastErrorCode: row.last_error_code ?? undefined,
+      retryCount: row.retry_count,
       errorReason: row.error_reason ?? undefined
+    }));
+  }
+
+  async appendBatchItemAttempt(attempt: BatchItemAttemptRecord): Promise<void> {
+    await this.pool.query(
+      `
+      INSERT INTO batch_item_attempts (
+        attempt_id,
+        batch_item_id,
+        attempt_no,
+        outcome,
+        error_code,
+        error_reason,
+        created_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::timestamptz)
+      `,
+      [
+        attempt.attemptId,
+        attempt.batchItemId,
+        attempt.attemptNo,
+        attempt.outcome,
+        attempt.errorCode ?? null,
+        attempt.errorReason ?? null,
+        attempt.createdAt
+      ]
+    );
+  }
+
+  async listBatchItemAttempts(batchItemId: string): Promise<BatchItemAttemptRecord[]> {
+    const { rows } = await this.pool.query<{
+      attempt_id: string;
+      batch_item_id: string;
+      attempt_no: number;
+      outcome: BatchItemAttemptRecord["outcome"];
+      error_code: string | null;
+      error_reason: string | null;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        attempt_id,
+        batch_item_id,
+        attempt_no,
+        outcome,
+        error_code,
+        error_reason,
+        created_at
+      FROM batch_item_attempts
+      WHERE batch_item_id = $1::uuid
+      ORDER BY attempt_no ASC
+      `,
+      [batchItemId]
+    );
+
+    return rows.map((row) => ({
+      attemptId: row.attempt_id,
+      batchItemId: row.batch_item_id,
+      attemptNo: row.attempt_no,
+      outcome: row.outcome,
+      errorCode: row.error_code ?? undefined,
+      errorReason: row.error_reason ?? undefined,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async listBatchJobs(limit = 100): Promise<BatchJobRecord[]> {
+    const { rows } = await this.pool.query<{
+      batch_id: string;
+      application_id: string;
+      total_items: number;
+      accepted_items: number;
+      rejected_items: number;
+      status: BatchJobRecord["status"];
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+        batch_id,
+        application_id,
+        total_items,
+        accepted_items,
+        rejected_items,
+        status,
+        created_at,
+        updated_at
+      FROM batch_jobs
+      ORDER BY updated_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    );
+
+    return rows.map((row) => ({
+      batchId: row.batch_id,
+      applicationId: row.application_id,
+      totalItems: row.total_items,
+      acceptedItems: row.accepted_items,
+      rejectedItems: row.rejected_items,
+      status: row.status,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
     }));
   }
 

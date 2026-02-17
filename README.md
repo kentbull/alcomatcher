@@ -51,10 +51,18 @@ Scanner-first, offline-first compliance platform foundation for week one.
   - `POST /api/batches`
 - Batch status and item window:
   - `GET /api/batches/:batchId?limit=100&offset=0`
+- Batch item drill-down (retry history + rich failure reasons):
+  - `GET /api/batches/:batchId/items/:batchItemId`
+- Batch job listing:
+  - `GET /api/batches?limit=100`
 - Admin queue projection:
   - `GET /api/admin/queue`
 - Compliance report export:
   - `GET /api/applications/:applicationId/report`
+- Admin sync-state backfill:
+  - `POST /api/admin/backfill/sync-state`
+- Admin KPI summary:
+  - `GET /api/admin/kpis?windowHours=24`
 
 ## Realtime Events (SSE)
 - Stream endpoint:

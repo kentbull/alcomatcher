@@ -120,6 +120,7 @@ siteRouter.get("/", (_req, res) => {
       <div class="cta-row">
         <a class="btn btn-primary" href="/scanner">Open Scanner</a>
         <a class="btn btn-secondary" href="/admin/queue">Open Admin Queue</a>
+        <a class="btn btn-secondary" href="/admin/batches">Batch Drill-Down</a>
         <a class="btn btn-secondary" href="/admin/dashboard">KPI Dashboard</a>
         <a class="btn btn-secondary" href="/health">System Health</a>
       </div>
@@ -417,6 +418,7 @@ siteRouter.get("/admin/queue", (_req, res) => {
           <option value="batch_completed">Batch completed</option>
         </select>
         <button id="refreshBtn" type="button">Refresh Queue</button>
+        <a href="/admin/batches" style="text-decoration:none"><button type="button">Batch Drill-Down</button></a>
         <a href="/admin/dashboard" style="text-decoration:none"><button type="button">Open KPI Dashboard</button></a>
       </div>
       <table>
@@ -550,7 +552,7 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
       <section class="cards" id="kpiCards"></section>
       <h3>Raw KPI Payload</h3>
       <pre id="raw"></pre>
-      <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/">Home</a></p>
+      <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/admin/batches">Batch Drill-Down</a> · <a href="/">Home</a></p>
     </main>
     <script>
       const kpiCards = document.getElementById("kpiCards");
@@ -612,6 +614,141 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
         events.addEventListener("batch.progress", scheduleRefresh);
       }
       loadKpis();
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/admin/batches", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Batch Drill-Down</title>
+    <style>
+      :root { --bg:#fbf1e2; --card:#fffdf8; --ink:#2c1a10; --accent:#b95a29; }
+      body { margin:0; font-family:"Avenir Next","Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+      .wrap { max-width:1200px; margin:0 auto; padding:20px 16px 28px; }
+      .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+      button, select { min-height:40px; border-radius:10px; border:1px solid rgba(0,0,0,0.2); padding:8px 10px; }
+      button { background:var(--accent); color:white; border:none; font-weight:700; }
+      .grid { display:grid; gap:10px; grid-template-columns: 1.2fr 1fr; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      .panel { background:var(--card); border:1px solid rgba(0,0,0,0.1); border-radius:12px; padding:12px; }
+      table { width:100%; border-collapse:collapse; }
+      th, td { text-align:left; padding:8px; border-bottom:1px solid rgba(0,0,0,0.08); font-size:0.93rem; }
+      tr.clickable { cursor:pointer; }
+      tr.clickable:hover { background:rgba(0,0,0,0.03); }
+      pre { white-space:pre-wrap; background:#fff; border:1px solid rgba(0,0,0,0.1); border-radius:10px; padding:10px; }
+      .nav a { color:#4a2817; text-decoration:none; font-weight:700; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Batch Reliability Drill-Down</h1>
+      <div class="toolbar">
+        <label for="batchSelect">Batch:</label>
+        <select id="batchSelect"></select>
+        <button id="refreshBtn" type="button">Refresh</button>
+      </div>
+      <section class="grid">
+        <article class="panel">
+          <h3>Batch Items (click a line item)</h3>
+          <table>
+            <thead>
+              <tr><th>Item</th><th>File</th><th>Status</th><th>Retries</th><th>Error</th></tr>
+            </thead>
+            <tbody id="itemRows"></tbody>
+          </table>
+        </article>
+        <article class="panel">
+          <h3>Line Item Detail</h3>
+          <pre id="itemDetail">Select a line item to view rich failure reasons and retry history.</pre>
+        </article>
+      </section>
+      <p class="nav"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/">Home</a></p>
+    </main>
+    <script>
+      const batchSelect = document.getElementById("batchSelect");
+      const itemRows = document.getElementById("itemRows");
+      const itemDetail = document.getElementById("itemDetail");
+      const refreshBtn = document.getElementById("refreshBtn");
+      let currentBatchId = "";
+      let refreshTimer = null;
+
+      async function loadBatches() {
+        const response = await fetch("/api/batches?limit=100");
+        const payload = await response.json();
+        const batches = payload.batches || [];
+        batchSelect.innerHTML = batches.map((b) => "<option value='" + b.batchId + "'>" + b.batchId + " · " + b.status + " · " + b.updatedAt + "</option>").join("");
+        if (!currentBatchId && batches.length > 0) currentBatchId = batches[0].batchId;
+        if (currentBatchId) batchSelect.value = currentBatchId;
+      }
+
+      async function loadItems() {
+        currentBatchId = batchSelect.value;
+        if (!currentBatchId) {
+          itemRows.innerHTML = "<tr><td colspan='5'>No batches found.</td></tr>";
+          return;
+        }
+        const response = await fetch("/api/batches/" + encodeURIComponent(currentBatchId) + "?limit=500&offset=0");
+        const payload = await response.json();
+        const items = payload.items || [];
+        if (!items.length) {
+          itemRows.innerHTML = "<tr><td colspan='5'>No line items.</td></tr>";
+          return;
+        }
+        itemRows.innerHTML = items.map((item) =>
+          "<tr class='clickable' data-id='" + item.batchItemId + "'>" +
+            "<td>" + item.clientLabelId + "</td>" +
+            "<td>" + item.imageFilename + "</td>" +
+            "<td>" + item.status + "</td>" +
+            "<td>" + (item.retryCount || 0) + "</td>" +
+            "<td>" + (item.lastErrorCode || "none") + "</td>" +
+          "</tr>"
+        ).join("");
+      }
+
+      async function loadItemDetail(batchItemId) {
+        const response = await fetch("/api/batches/" + encodeURIComponent(currentBatchId) + "/items/" + encodeURIComponent(batchItemId));
+        const payload = await response.json();
+        itemDetail.textContent = JSON.stringify(payload, null, 2);
+      }
+
+      function wireRowClicks() {
+        itemRows.querySelectorAll("tr.clickable").forEach((row) => {
+          row.addEventListener("click", () => {
+            const id = row.getAttribute("data-id");
+            if (id) loadItemDetail(id);
+          });
+        });
+      }
+
+      async function refreshAll() {
+        await loadBatches();
+        await loadItems();
+        wireRowClicks();
+      }
+
+      function scheduleRefresh() {
+        if (refreshTimer) return;
+        refreshTimer = setTimeout(async () => {
+          refreshTimer = null;
+          await refreshAll();
+        }, 500);
+      }
+
+      refreshBtn.addEventListener("click", refreshAll);
+      batchSelect.addEventListener("change", async () => {
+        await loadItems();
+        wireRowClicks();
+      });
+      if (typeof EventSource !== "undefined") {
+        const events = new EventSource("/api/events/stream?scope=admin");
+        events.addEventListener("batch.progress", scheduleRefresh);
+      }
+      refreshAll();
     </script>
   </body>
 </html>`);

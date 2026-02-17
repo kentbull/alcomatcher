@@ -121,3 +121,16 @@ batchRouter.get("/api/batches/:batchId", async (req, res) => {
     updatedAt: batch.updatedAt
   });
 });
+
+batchRouter.get("/api/batches", async (req, res) => {
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 100;
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 500) : 100;
+  const jobs = await batchService.listBatchJobs(limit);
+  return res.json({ batches: jobs });
+});
+
+batchRouter.get("/api/batches/:batchId/items/:batchItemId", async (req, res) => {
+  const detail = await batchService.getBatchItemDetail(req.params.batchId, req.params.batchItemId);
+  if (!detail) return res.status(404).json({ error: "batch_item_not_found" });
+  return res.json(detail);
+});

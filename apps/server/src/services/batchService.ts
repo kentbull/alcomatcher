@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { complianceService } from "./complianceService.js";
 import { eventStore } from "./eventStore.js";
 import { realtimeEventBus } from "./realtimeEventBus.js";
-import type { BatchItemInput, BatchItemRecord, BatchJobRecord } from "../types/batch.js";
+import type { BatchItemAttemptRecord, BatchItemInput, BatchItemRecord, BatchJobRecord } from "../types/batch.js";
 import type { RegulatoryProfile } from "../types/compliance.js";
 
 interface BatchStatusView extends BatchJobRecord {
@@ -11,12 +11,21 @@ interface BatchStatusView extends BatchJobRecord {
   items: BatchItemRecord[];
 }
 
+interface BatchItemDetail {
+  item: BatchItemRecord;
+  attempts: BatchItemAttemptRecord[];
+}
+
+const MAX_RETRIES = 2;
+
 /**
- * Batch ingestion foundation for week-one queue and status workflows.
+ * Batch ingestion + resilient per-item processing foundation.
+ * Uses deterministic simulated processing in v1 to harden queue/retry/error workflows.
  */
 export class BatchService {
   private readonly jobs = new Map<string, BatchJobRecord>();
   private readonly items = new Map<string, BatchItemRecord[]>();
+  private readonly attempts = new Map<string, BatchItemAttemptRecord[]>();
 
   async createBatch(items: BatchItemInput[], defaultRegulatoryProfile: RegulatoryProfile = "distilled_spirits"): Promise<BatchJobRecord> {
     const profile = items[0]?.regulatoryProfile ?? defaultRegulatoryProfile;
@@ -28,7 +37,7 @@ export class BatchService {
       batchId,
       applicationId: app.applicationId,
       totalItems: items.length,
-      acceptedItems: items.length,
+      acceptedItems: 0,
       rejectedItems: 0,
       status: "batch_received",
       createdAt: now,
@@ -40,23 +49,25 @@ export class BatchService {
       clientLabelId: item.clientLabelId,
       imageFilename: item.imageFilename,
       regulatoryProfile: item.regulatoryProfile,
-      status: "queued"
+      status: "queued",
+      retryCount: 0
     }));
 
     this.jobs.set(batchId, record);
     this.items.set(batchId, batchItems);
+    this.attempts.set(batchId, []);
 
     await this.persistBatchState(record, batchItems);
     this.publishBatchProgress(batchId, app.applicationId, "batch_received", batchItems);
+
     await this.transitionBatch(batchId, "batch_processing");
-    await this.markAllComplete(batchId);
+    await this.processBatchItems(batchId);
 
     return this.jobs.get(batchId) ?? record;
   }
 
   async getBatchStatus(batchId: string, limit = 100, offset = 0): Promise<BatchStatusView | null> {
     await this.hydrateBatch(batchId);
-
     const job = this.jobs.get(batchId);
     if (!job) return null;
 
@@ -70,6 +81,137 @@ export class BatchService {
       failedItems,
       processedItems,
       items: window
+    };
+  }
+
+  async listBatchJobs(limit = 100) {
+    const jobs = await eventStore.listBatchJobs(limit);
+    for (const job of jobs) {
+      this.jobs.set(job.batchId, job);
+    }
+    return jobs;
+  }
+
+  async getBatchItemDetail(batchId: string, batchItemId: string): Promise<BatchItemDetail | null> {
+    await this.hydrateBatch(batchId);
+    const items = this.items.get(batchId) ?? [];
+    const item = items.find((entry) => entry.batchItemId === batchItemId);
+    if (!item) return null;
+
+    const persistedAttempts = await eventStore.listBatchItemAttempts(batchItemId).catch(() => []);
+    const memoryAttempts = (this.attempts.get(batchId) ?? []).filter((attempt) => attempt.batchItemId === batchItemId);
+    const mergedAttempts = mergeAttempts(memoryAttempts, persistedAttempts);
+
+    return {
+      item,
+      attempts: mergedAttempts
+    };
+  }
+
+  private async processBatchItems(batchId: string) {
+    const job = this.jobs.get(batchId);
+    const batchItems = this.items.get(batchId);
+    if (!job || !batchItems) return;
+
+    const updatedItems: BatchItemRecord[] = [];
+    const attempts = this.attempts.get(batchId) ?? [];
+
+    for (const item of batchItems) {
+      const processingItem: BatchItemRecord = { ...item, status: "processing" };
+      updatedItems.push(processingItem);
+      this.items.set(batchId, [...updatedItems, ...batchItems.slice(updatedItems.length)]);
+      await this.persistBatchState(job, this.items.get(batchId) ?? batchItems);
+
+      const result = await this.processItemWithRetry(processingItem);
+      updatedItems[updatedItems.length - 1] = result.item;
+      attempts.push(...result.attempts);
+      this.attempts.set(batchId, attempts);
+      await this.persistAttempts(result.attempts);
+      this.items.set(batchId, [...updatedItems, ...batchItems.slice(updatedItems.length)]);
+      this.publishBatchProgress(batchId, job.applicationId, "batch_processing", this.items.get(batchId) ?? updatedItems);
+    }
+
+    const failedItems = updatedItems.filter((item) => item.status === "failed").length;
+    const completedItems = updatedItems.filter((item) => item.status === "completed").length;
+    const finalStatus: BatchJobRecord["status"] = failedItems > 0 ? "batch_partially_failed" : "batch_completed";
+    const nextJob: BatchJobRecord = {
+      ...job,
+      acceptedItems: completedItems,
+      rejectedItems: failedItems,
+      status: finalStatus,
+      updatedAt: new Date().toISOString()
+    };
+    this.jobs.set(batchId, nextJob);
+    this.items.set(batchId, updatedItems);
+
+    await complianceService.mergeClientSync(nextJob.applicationId, {
+      status: finalStatus
+    });
+    await this.persistBatchState(nextJob, updatedItems);
+    this.publishBatchProgress(batchId, nextJob.applicationId, finalStatus, updatedItems);
+  }
+
+  private async processItemWithRetry(item: BatchItemRecord): Promise<{ item: BatchItemRecord; attempts: BatchItemAttemptRecord[] }> {
+    const attempts: BatchItemAttemptRecord[] = [];
+    let retryCount = 0;
+
+    for (let attemptNo = 1; attemptNo <= MAX_RETRIES + 1; attemptNo += 1) {
+      const evalResult = evaluateItemAttempt(item.imageFilename, attemptNo);
+      if (evalResult.success) {
+        attempts.push({
+          attemptId: randomUUID(),
+          batchItemId: item.batchItemId,
+          attemptNo,
+          outcome: "success",
+          createdAt: new Date().toISOString()
+        });
+        return {
+          item: {
+            ...item,
+            status: "completed",
+            retryCount,
+            lastErrorCode: undefined,
+            errorReason: undefined
+          },
+          attempts
+        };
+      }
+
+      const errorMessage = `${evalResult.code}: ${evalResult.reason}`;
+      attempts.push({
+        attemptId: randomUUID(),
+        batchItemId: item.batchItemId,
+        attemptNo,
+        outcome: "failed",
+        errorCode: evalResult.code,
+        errorReason: evalResult.reason,
+        createdAt: new Date().toISOString()
+      });
+
+      retryCount += 1;
+      if (!evalResult.retryable || attemptNo > MAX_RETRIES) {
+        return {
+          item: {
+            ...item,
+            status: "failed",
+            retryCount,
+            lastErrorCode: evalResult.code,
+            errorReason: errorMessage
+          },
+          attempts
+        };
+      }
+    }
+
+    return {
+      item: {
+        ...item,
+        status: "failed",
+        retryCount,
+        lastErrorCode: "unknown_failure",
+        errorReason: "unknown_failure: exhausted retries"
+      },
+      attempts
     };
   }
 
@@ -91,37 +233,22 @@ export class BatchService {
     this.publishBatchProgress(next.batchId, next.applicationId, status, this.items.get(batchId) ?? []);
   }
 
-  private async markAllComplete(batchId: string) {
-    const job = this.jobs.get(batchId);
-    const batchItems = this.items.get(batchId);
-    if (!job || !batchItems) return;
-
-    const completed = batchItems.map((item) => ({
-      ...item,
-      status: "completed" as const
-    }));
-    this.items.set(batchId, completed);
-
-    const doneJob: BatchJobRecord = {
-      ...job,
-      status: "batch_completed",
-      updatedAt: new Date().toISOString()
-    };
-    this.jobs.set(batchId, doneJob);
-
-    await complianceService.mergeClientSync(doneJob.applicationId, {
-      status: "batch_completed"
-    });
-    await this.persistBatchState(doneJob, completed);
-    this.publishBatchProgress(doneJob.batchId, doneJob.applicationId, "batch_completed", completed);
-  }
-
   private async persistBatchState(job: BatchJobRecord, items: BatchItemRecord[]) {
     try {
       await eventStore.upsertBatchJob(job);
       await eventStore.upsertBatchItems(job.batchId, items);
     } catch {
       // Keep local state if persistence is temporarily unavailable.
+    }
+  }
+
+  private async persistAttempts(attempts: BatchItemAttemptRecord[]) {
+    for (const attempt of attempts) {
+      try {
+        await eventStore.appendBatchItemAttempt(attempt);
+      } catch {
+        // Non-blocking for v1 local reliability simulation.
+      }
     }
   }
 
@@ -140,12 +267,7 @@ export class BatchService {
     }
   }
 
-  private publishBatchProgress(
-    batchId: string,
-    applicationId: string,
-    status: BatchJobRecord["status"],
-    items: BatchItemRecord[]
-  ) {
+  private publishBatchProgress(batchId: string, applicationId: string, status: BatchJobRecord["status"], items: BatchItemRecord[]) {
     const failedItems = items.filter((item) => item.status === "failed").length;
     const processedItems = items.filter((item) => item.status === "completed" || item.status === "failed").length;
 
@@ -162,6 +284,64 @@ export class BatchService {
       }
     });
   }
+}
+
+function evaluateItemAttempt(imageFilename: string, attemptNo: number): {
+  success: boolean;
+  retryable: boolean;
+  code?: string;
+  reason?: string;
+} {
+  const lower = imageFilename.toLowerCase();
+
+  if (!/\.(jpe?g|png|heic|webp)$/i.test(lower)) {
+    return {
+      success: false,
+      retryable: false,
+      code: "unsupported_file_type",
+      reason: "Image filename must end with .jpg/.jpeg/.png/.heic/.webp"
+    };
+  }
+
+  if (lower.includes("corrupt") || lower.includes("decodefail")) {
+    return {
+      success: false,
+      retryable: false,
+      code: "decode_failed",
+      reason: "Could not decode image bytes for OCR preprocessing"
+    };
+  }
+
+  if (lower.includes("retry") && attemptNo === 1) {
+    return {
+      success: false,
+      retryable: true,
+      code: "ocr_timeout",
+      reason: "OCR worker timed out on first attempt"
+    };
+  }
+
+  if (lower.includes("blur") && attemptNo <= 2) {
+    return {
+      success: false,
+      retryable: attemptNo <= 2,
+      code: "low_confidence",
+      reason: "Image appears blurred; confidence below threshold"
+    };
+  }
+
+  return {
+    success: true,
+    retryable: false
+  };
+}
+
+function mergeAttempts(memory: BatchItemAttemptRecord[], persisted: BatchItemAttemptRecord[]) {
+  const byId = new Map<string, BatchItemAttemptRecord>();
+  for (const attempt of [...memory, ...persisted]) {
+    byId.set(attempt.attemptId, attempt);
+  }
+  return Array.from(byId.values()).sort((a, b) => a.attemptNo - b.attemptNo);
 }
 
 export const batchService = new BatchService();
