@@ -13,6 +13,17 @@ interface ApplicationProjection {
   lastEventAt?: string;
 }
 
+interface ComplianceReport {
+  applicationId: string;
+  status: ComplianceApplicationDoc["status"];
+  syncState: ComplianceApplicationDoc["syncState"];
+  generatedAt: string;
+  latestQuickCheck: ScannerQuickCheckResult | null;
+  checks: ScannerQuickCheckResult["checks"];
+  extracted: ScannerQuickCheckResult["extracted"] | null;
+  eventTimeline: ComplianceEvent[];
+}
+
 interface ScannerQuickCheckEventPayload {
   summary: ScannerQuickCheckResult["summary"];
   confidence: number;
@@ -172,6 +183,51 @@ export class ComplianceService {
       latestQuickCheck,
       eventCount: events.length,
       lastEventAt: events.length > 0 ? events[events.length - 1].createdAt : undefined
+    };
+  }
+
+  async getApplication(applicationId: string): Promise<ComplianceApplicationDoc | null> {
+    let doc = this.docs.get(applicationId);
+    if (doc) return doc;
+
+    const all = await this.listApplications();
+    doc = all.find((entry) => entry.applicationId === applicationId);
+    return doc ?? null;
+  }
+
+  async listAdminQueue(status?: ComplianceApplicationDoc["status"]) {
+    const applications = await this.listApplications();
+    const filtered = status ? applications.filter((app) => app.status === status) : applications;
+
+    const projections = await Promise.all(
+      filtered.map(async (app) => ({
+        applicationId: app.applicationId,
+        status: app.status,
+        syncState: app.syncState,
+        updatedAt: app.updatedAt,
+        projection: await this.getProjection(app.applicationId)
+      }))
+    );
+
+    return projections;
+  }
+
+  async buildComplianceReport(applicationId: string): Promise<ComplianceReport | null> {
+    const doc = await this.getApplication(applicationId);
+    if (!doc) return null;
+
+    const projection = await this.getProjection(applicationId);
+    const timeline = await this.getEvents(applicationId);
+
+    return {
+      applicationId,
+      status: doc.status,
+      syncState: doc.syncState,
+      generatedAt: new Date().toISOString(),
+      latestQuickCheck: projection?.latestQuickCheck ?? null,
+      checks: projection?.latestQuickCheck?.checks ?? [],
+      extracted: projection?.latestQuickCheck?.extracted ?? null,
+      eventTimeline: timeline
     };
   }
 

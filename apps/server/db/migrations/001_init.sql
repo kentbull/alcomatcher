@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS batch_items (
   batch_id UUID NOT NULL REFERENCES batch_jobs(batch_id),
   client_label_id TEXT NOT NULL,
   image_filename TEXT NOT NULL,
+  regulatory_profile TEXT NOT NULL DEFAULT 'distilled_spirits',
   status TEXT NOT NULL,
   error_reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

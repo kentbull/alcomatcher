@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { env } from "../config/env.js";
 import type { ApplicationStatus, ComplianceApplicationDoc, ComplianceEvent, CrdtOperation } from "../types/compliance.js";
+import type { BatchItemRecord, BatchJobRecord } from "../types/batch.js";
 
 export class EventStore {
   private readonly pool: Pool;
@@ -194,6 +195,156 @@ export class EventStore {
       sequence: Number(row.sequence),
       payload: row.payload,
       createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async upsertBatchJob(job: BatchJobRecord): Promise<void> {
+    await this.pool.query(
+      `
+      INSERT INTO batch_jobs (
+        batch_id,
+        application_id,
+        total_items,
+        accepted_items,
+        rejected_items,
+        status,
+        updated_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW())
+      ON CONFLICT (batch_id)
+      DO UPDATE SET
+        total_items = EXCLUDED.total_items,
+        accepted_items = EXCLUDED.accepted_items,
+        rejected_items = EXCLUDED.rejected_items,
+        status = EXCLUDED.status,
+        updated_at = NOW()
+      `,
+      [job.batchId, job.applicationId, job.totalItems, job.acceptedItems, job.rejectedItems, job.status]
+    );
+  }
+
+  async upsertBatchItems(batchId: string, items: BatchItemRecord[]): Promise<void> {
+    if (items.length === 0) return;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const item of items) {
+        await client.query(
+          `
+          INSERT INTO batch_items (
+            batch_item_id,
+            batch_id,
+            client_label_id,
+            image_filename,
+            regulatory_profile,
+            status,
+            error_reason,
+            updated_at
+          )
+          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, NOW())
+          ON CONFLICT (batch_item_id)
+          DO UPDATE SET
+            regulatory_profile = EXCLUDED.regulatory_profile,
+            status = EXCLUDED.status,
+            error_reason = EXCLUDED.error_reason,
+            updated_at = NOW()
+          `,
+          [
+            item.batchItemId,
+            batchId,
+            item.clientLabelId,
+            item.imageFilename,
+            item.regulatoryProfile,
+            item.status,
+            item.errorReason ?? null
+          ]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getBatchJob(batchId: string): Promise<BatchJobRecord | null> {
+    const { rows } = await this.pool.query<{
+      batch_id: string;
+      application_id: string;
+      total_items: number;
+      accepted_items: number;
+      rejected_items: number;
+      status: BatchJobRecord["status"];
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+        batch_id,
+        application_id,
+        total_items,
+        accepted_items,
+        rejected_items,
+        status,
+        created_at,
+        updated_at
+      FROM batch_jobs
+      WHERE batch_id = $1::uuid
+      LIMIT 1
+      `,
+      [batchId]
+    );
+
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      batchId: row.batch_id,
+      applicationId: row.application_id,
+      totalItems: row.total_items,
+      acceptedItems: row.accepted_items,
+      rejectedItems: row.rejected_items,
+      status: row.status,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    };
+  }
+
+  async listBatchItems(batchId: string, limit = 200, offset = 0): Promise<BatchItemRecord[]> {
+    const { rows } = await this.pool.query<{
+      batch_item_id: string;
+      client_label_id: string;
+      image_filename: string;
+      regulatory_profile: BatchItemRecord["regulatoryProfile"];
+      status: BatchItemRecord["status"];
+      error_reason: string | null;
+    }>(
+      `
+      SELECT
+        batch_item_id,
+        client_label_id,
+        image_filename,
+        regulatory_profile,
+        status,
+        error_reason
+      FROM batch_items
+      WHERE batch_id = $1::uuid
+      ORDER BY created_at ASC
+      LIMIT $2
+      OFFSET $3
+      `,
+      [batchId, limit, offset]
+    );
+
+    return rows.map((row) => ({
+      batchItemId: row.batch_item_id,
+      clientLabelId: row.client_label_id,
+      imageFilename: row.image_filename,
+      regulatoryProfile: row.regulatory_profile,
+      status: row.status,
+      errorReason: row.error_reason ?? undefined
     }));
   }
 }

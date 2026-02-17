@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { setupIonicReact } from "@ionic/react";
@@ -55,6 +55,17 @@ interface ScannerErrorPayload {
   request_id?: string;
 }
 
+interface QueuedCrdtOp {
+  applicationId: string;
+  actorId: string;
+  sequence: number;
+  payload: Record<string, unknown>;
+}
+
+const CRDT_QUEUE_KEY = "alcomatcher_crdt_queue_v1";
+const CRDT_ACTOR_KEY = "alcomatcher_crdt_actor_v1";
+const CRDT_SEQUENCE_PREFIX = "alcomatcher_crdt_seq_";
+
 function base64ToBlob(base64Data: string, mimeType = "image/jpeg") {
   const byteString = atob(base64Data);
   const byteArray = new Uint8Array(byteString.length);
@@ -76,12 +87,138 @@ function App() {
   const [expectedClassType, setExpectedClassType] = useState("");
   const [expectedAbvText, setExpectedAbvText] = useState("");
   const [expectedNetContents, setExpectedNetContents] = useState("");
+  const [syncPendingCount, setSyncPendingCount] = useState(0);
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "offline" | "retrying" | "failed">("idle");
+  const syncRetryTimeoutRef = useRef<number | null>(null);
+  const syncRetryAttemptRef = useRef(0);
 
   const apiBase = useMemo(() => {
     return import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com";
   }, []);
 
   const statusClass = result ? `status-${result.summary}` : "";
+
+  const getStoredQueue = useCallback((): QueuedCrdtOp[] => {
+    const raw = localStorage.getItem(CRDT_QUEUE_KEY);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as QueuedCrdtOp[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const persistQueue = useCallback((queue: QueuedCrdtOp[]) => {
+    localStorage.setItem(CRDT_QUEUE_KEY, JSON.stringify(queue));
+    setSyncPendingCount(queue.length);
+  }, []);
+
+  const getActorId = useCallback(() => {
+    const existing = localStorage.getItem(CRDT_ACTOR_KEY);
+    if (existing) return existing;
+    const actorId = `actor-${crypto.randomUUID()}`;
+    localStorage.setItem(CRDT_ACTOR_KEY, actorId);
+    return actorId;
+  }, []);
+
+  const nextSequenceForApplication = useCallback((applicationId: string) => {
+    const key = `${CRDT_SEQUENCE_PREFIX}${applicationId}`;
+    const current = Number(localStorage.getItem(key) ?? "0");
+    const next = Number.isFinite(current) && current >= 0 ? current + 1 : 1;
+    localStorage.setItem(key, String(next));
+    return next;
+  }, []);
+
+  const scheduleRetry = useCallback(() => {
+    if (syncRetryTimeoutRef.current !== null) return;
+    syncRetryAttemptRef.current += 1;
+    const delayMs = Math.min(1000 * 2 ** syncRetryAttemptRef.current, 30000);
+    setSyncState("retrying");
+    syncRetryTimeoutRef.current = window.setTimeout(() => {
+      syncRetryTimeoutRef.current = null;
+      void flushCrdtQueue();
+    }, delayMs);
+  }, []);
+
+  const flushCrdtQueue = useCallback(async () => {
+    const queue = getStoredQueue();
+    if (queue.length === 0) {
+      setSyncState("idle");
+      syncRetryAttemptRef.current = 0;
+      return;
+    }
+
+    if (!navigator.onLine) {
+      setSyncState("offline");
+      return;
+    }
+
+    setSyncState("syncing");
+    const grouped = new Map<string, QueuedCrdtOp[]>();
+    for (const op of queue) {
+      const group = grouped.get(op.applicationId) ?? [];
+      group.push(op);
+      grouped.set(op.applicationId, group);
+    }
+
+    const failures = new Set<string>();
+    for (const [applicationId, ops] of grouped.entries()) {
+      const actorId = ops[0]?.actorId ?? getActorId();
+      const payloadOps = ops.map((op) => ({ sequence: op.sequence, payload: op.payload }));
+      try {
+        const response = await fetch(`${apiBase}/api/applications/${applicationId}/crdt-ops`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ actorId, ops: payloadOps })
+        });
+        if (!response.ok) {
+          failures.add(applicationId);
+        }
+      } catch {
+        failures.add(applicationId);
+      }
+    }
+
+    if (failures.size === 0) {
+      persistQueue([]);
+      setSyncState("idle");
+      syncRetryAttemptRef.current = 0;
+      return;
+    }
+
+    const remaining = queue.filter((op) => failures.has(op.applicationId));
+    persistQueue(remaining);
+    setSyncState("failed");
+    scheduleRetry();
+  }, [apiBase, getActorId, getStoredQueue, persistQueue, scheduleRetry]);
+
+  const enqueueCrdtSync = useCallback(
+    (scan: ScannerResponse) => {
+      const actorId = getActorId();
+      const sequence = nextSequenceForApplication(scan.applicationId);
+      const op: QueuedCrdtOp = {
+        applicationId: scan.applicationId,
+        actorId,
+        sequence,
+        payload: {
+          opType: "quick_check_recorded",
+          summary: scan.summary,
+          confidence: scan.confidence,
+          provider: scan.provider,
+          usedFallback: scan.usedFallback,
+          createdAt: new Date().toISOString()
+        }
+      };
+      const queue = getStoredQueue();
+      queue.push(op);
+      persistQueue(queue);
+      void flushCrdtQueue();
+    },
+    [flushCrdtQueue, getActorId, getStoredQueue, nextSequenceForApplication, persistQueue]
+  );
 
   const mapScannerError = (payload: ScannerErrorPayload, statusCode: number) => {
     if (payload.error === "photo_too_large" || statusCode === 413) {
@@ -166,6 +303,7 @@ function App() {
 
       const payload = (await response.json()) as ScannerResponse;
       setResult(payload);
+      enqueueCrdtSync(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unexpected scanner error";
       setError(message);
@@ -173,6 +311,20 @@ function App() {
       setChecking(false);
     }
   };
+
+  useEffect(() => {
+    setSyncPendingCount(getStoredQueue().length);
+    const onOnline = () => {
+      void flushCrdtQueue();
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      if (syncRetryTimeoutRef.current !== null) {
+        window.clearTimeout(syncRetryTimeoutRef.current);
+      }
+    };
+  }, [flushCrdtQueue, getStoredQueue]);
 
   return (
     <IonApp>
@@ -294,6 +446,11 @@ function App() {
               </IonItem>
               <IonItem>
                 <IonLabel>Sync: CRDT document sync after quick check</IonLabel>
+              </IonItem>
+              <IonItem>
+                <IonLabel>
+                  Sync State: {syncState} {syncPendingCount > 0 ? `(${syncPendingCount} pending)` : "(0 pending)"}
+                </IonLabel>
               </IonItem>
             </IonList>
           </div>

@@ -119,6 +119,7 @@ siteRouter.get("/", (_req, res) => {
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="/scanner">Open Scanner</a>
+        <a class="btn btn-secondary" href="/admin/queue">Open Admin Queue</a>
         <a class="btn btn-secondary" href="/health">System Health</a>
       </div>
       <section class="cards">
@@ -352,6 +353,128 @@ siteRouter.get("/scanner", (_req, res) => {
           runBtn.textContent = "Run Quick Check";
         }
       });
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/admin/queue", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Admin Queue</title>
+    <style>
+      :root {
+        --bg: #fcf6ea;
+        --ink: #2f1d12;
+        --accent: #b95826;
+        --card: #fffdf8;
+      }
+      body { margin: 0; font-family: "Avenir Next", "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 30px; }
+      .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+      select, button {
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(0,0,0,0.2);
+        padding: 8px 10px;
+        background: white;
+      }
+      button { background: var(--accent); color: white; border: none; font-weight: 700; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      th, td {
+        text-align: left;
+        padding: 10px;
+        border-bottom: 1px solid rgba(0,0,0,0.08);
+        font-size: 0.95rem;
+      }
+      th { background: #f8e6cd; }
+      .muted { opacity: 0.8; font-size: 0.93rem; margin-top: 8px; }
+      .links a { color: #4b2a18; text-decoration: none; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Compliance Admin Queue</h1>
+      <div class="toolbar">
+        <label for="statusFilter">Filter status:</label>
+        <select id="statusFilter">
+          <option value="">All</option>
+          <option value="needs_review">Needs review</option>
+          <option value="rejected">Rejected</option>
+          <option value="matched">Matched</option>
+          <option value="batch_received">Batch received</option>
+          <option value="batch_processing">Batch processing</option>
+          <option value="batch_completed">Batch completed</option>
+        </select>
+        <button id="refreshBtn" type="button">Refresh Queue</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Application</th>
+            <th>Status</th>
+            <th>Sync</th>
+            <th>Summary</th>
+            <th>Confidence</th>
+            <th>Updated</th>
+            <th>Report</th>
+          </tr>
+        </thead>
+        <tbody id="queueRows"></tbody>
+      </table>
+      <p class="muted">Admin view is live-backed by event projections and compliance report endpoints.</p>
+      <p class="links"><a href="/">← Back to Home</a></p>
+    </main>
+    <script>
+      const queueRows = document.getElementById("queueRows");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const statusFilter = document.getElementById("statusFilter");
+
+      function renderRows(items) {
+        if (!items.length) {
+          queueRows.innerHTML = "<tr><td colspan='7'>No queue items.</td></tr>";
+          return;
+        }
+        queueRows.innerHTML = items.map((item) => {
+          const projection = item.projection || {};
+          const quickCheck = projection.latestQuickCheck || {};
+          const confidence = typeof quickCheck.confidence === "number" ? Math.round(quickCheck.confidence * 100) + "%" : "n/a";
+          return "<tr>" +
+            "<td>" + item.applicationId + "</td>" +
+            "<td>" + item.status + "</td>" +
+            "<td>" + item.syncState + "</td>" +
+            "<td>" + (quickCheck.summary || "n/a") + "</td>" +
+            "<td>" + confidence + "</td>" +
+            "<td>" + (item.updatedAt || "n/a") + "</td>" +
+            "<td><a href='/api/applications/" + item.applicationId + "/report' target='_blank' rel='noreferrer'>JSON</a></td>" +
+          "</tr>";
+        }).join("");
+      }
+
+      async function loadQueue() {
+        const status = statusFilter.value;
+        const url = status ? "/api/admin/queue?status=" + encodeURIComponent(status) : "/api/admin/queue";
+        try {
+          const response = await fetch(url);
+          const payload = await response.json();
+          renderRows((payload && payload.queue) ? payload.queue : []);
+        } catch (error) {
+          queueRows.innerHTML = "<tr><td colspan='7'>Failed to load queue.</td></tr>";
+        }
+      }
+
+      refreshBtn.addEventListener("click", loadQueue);
+      statusFilter.addEventListener("change", loadQueue);
+      loadQueue();
     </script>
   </body>
 </html>`);

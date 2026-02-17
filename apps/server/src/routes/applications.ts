@@ -27,6 +27,19 @@ const syncSchema = z.object({
   })
 });
 
+const queueStatusSchema = z.enum([
+  "captured",
+  "scanned",
+  "matched",
+  "approved",
+  "rejected",
+  "needs_review",
+  "batch_received",
+  "batch_processing",
+  "batch_partially_failed",
+  "batch_completed"
+]);
+
 const appendCrdtOpsSchema = z.object({
   actorId: z.string().min(1),
   ops: z
@@ -97,4 +110,22 @@ applicationRouter.get("/api/applications/:applicationId/projection", async (req,
   if (!projection) return res.status(404).json({ error: "application_not_found" });
 
   return res.json({ projection });
+});
+
+applicationRouter.get("/api/applications/:applicationId/report", async (req, res) => {
+  const report = await complianceService.buildComplianceReport(req.params.applicationId);
+  if (!report) return res.status(404).json({ error: "application_not_found" });
+
+  return res.json({ report });
+});
+
+applicationRouter.get("/api/admin/queue", async (req, res) => {
+  const statusQuery = typeof req.query.status === "string" ? req.query.status : undefined;
+  const parsedStatus = statusQuery ? queueStatusSchema.safeParse(statusQuery) : null;
+  if (statusQuery && (!parsedStatus || !parsedStatus.success)) {
+    return res.status(400).json({ error: "invalid_status_filter" });
+  }
+
+  const queue = await complianceService.listAdminQueue(parsedStatus?.success ? parsedStatus.data : undefined);
+  return res.json({ queue });
 });

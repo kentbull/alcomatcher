@@ -46,6 +46,16 @@ Scanner-first, offline-first compliance platform foundation for week one.
 - Pull operations after a sequence:
   - `GET /api/applications/:applicationId/crdt-ops?afterSequence=10`
 
+## Batch and Admin APIs (Week-One Foundation)
+- Batch ingestion (JSON items, or multipart with optional `archive` ZIP + `manifest` CSV):
+  - `POST /api/batches`
+- Batch status and item window:
+  - `GET /api/batches/:batchId?limit=100&offset=0`
+- Admin queue projection:
+  - `GET /api/admin/queue`
+- Compliance report export:
+  - `GET /api/applications/:applicationId/report`
+
 ## OpenClaw Telegram Alerts (Scanner Failures)
 - Alert script: `infra/openclaw/alert-scanner-failures.sh`
 - Systemd unit template: `infra/openclaw/alcomatcher-openclaw-alerts.service`
