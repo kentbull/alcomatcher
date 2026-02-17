@@ -528,12 +528,40 @@ export class EventStore {
     return counts;
   }
 
-  async listRecentQuickCheckMetrics(hours = 24): Promise<Array<{ confidence: number; usedFallback: boolean; processingMs?: number }>> {
+  async listRecentQuickCheckMetrics(hours = 24): Promise<
+    Array<{
+      confidence: number;
+      usedFallback: boolean;
+      processingMs?: number;
+      stageTimings?: {
+        sessionCreateMs?: number;
+        frontUploadMs?: number;
+        frontOcrMs?: number;
+        backUploadMs?: number;
+        backOcrMs?: number;
+        additionalUploadTotalMs?: number;
+        finalizeMs?: number;
+        decisionTotalMs?: number;
+      };
+      telemetryQuality?: "complete" | "partial";
+    }>
+  > {
     const { rows } = await this.pool.query<{
       payload: {
         confidence?: number;
         usedFallback?: boolean;
         processingMs?: number;
+        stageTimings?: {
+          sessionCreateMs?: number;
+          frontUploadMs?: number;
+          frontOcrMs?: number;
+          backUploadMs?: number;
+          backOcrMs?: number;
+          additionalUploadTotalMs?: number;
+          finalizeMs?: number;
+          decisionTotalMs?: number;
+        };
+        telemetryQuality?: "complete" | "partial";
       };
     }>(
       `
@@ -550,7 +578,9 @@ export class EventStore {
     return rows.map((row) => ({
       confidence: typeof row.payload?.confidence === "number" ? row.payload.confidence : 0,
       usedFallback: Boolean(row.payload?.usedFallback),
-      processingMs: typeof row.payload?.processingMs === "number" ? row.payload.processingMs : undefined
+      processingMs: typeof row.payload?.processingMs === "number" ? row.payload.processingMs : undefined,
+      stageTimings: row.payload?.stageTimings,
+      telemetryQuality: row.payload?.telemetryQuality === "complete" ? "complete" : "partial"
     }));
   }
 }

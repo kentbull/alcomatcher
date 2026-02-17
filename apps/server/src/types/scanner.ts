@@ -67,6 +67,19 @@ export interface ScannerQuickCheckResult {
   provider: OcrResult["provider"];
   usedFallback: boolean;
   processingMs?: number;
+  stageTimings?: ScannerStageTimings;
+  telemetryQuality?: "complete" | "partial";
+}
+
+export interface ScannerStageTimings {
+  sessionCreateMs?: number;
+  frontUploadMs?: number;
+  frontOcrMs?: number;
+  backUploadMs?: number;
+  backOcrMs?: number;
+  additionalUploadTotalMs?: number;
+  finalizeMs?: number;
+  decisionTotalMs?: number;
 }
 
 export interface ExpectedLabelFields {

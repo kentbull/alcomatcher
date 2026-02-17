@@ -34,6 +34,19 @@ interface KpiSummary {
     fallbackRate: number;
     avgConfidence: number;
   };
+  scanStagePerformance: {
+    decisionTotalMs: { p50Ms: number; p95Ms: number };
+    sessionCreateMs: { p50Ms: number; p95Ms: number };
+    frontUploadMs: { p50Ms: number; p95Ms: number };
+    frontOcrMs: { p50Ms: number; p95Ms: number };
+    backUploadMs: { p50Ms: number; p95Ms: number };
+    backOcrMs: { p50Ms: number; p95Ms: number };
+    finalizeMs: { p50Ms: number; p95Ms: number };
+  };
+  telemetryQuality: {
+    complete: number;
+    partial: number;
+  };
   syncHealth: {
     synced: number;
     pending_sync: number;
@@ -123,6 +136,8 @@ export class ComplianceService {
       summary: result.summary,
       confidence: result.confidence,
       processingMs: result.processingMs,
+      stageTimings: result.stageTimings,
+      telemetryQuality: result.telemetryQuality ?? "partial",
       provider: result.provider,
       usedFallback: result.usedFallback,
       expected: expected ?? null,
@@ -249,6 +264,16 @@ export class ComplianceService {
     const quickChecks = await eventStore.listRecentQuickCheckMetrics(windowHours);
 
     const processingValues = quickChecks.map((item) => item.processingMs).filter((value): value is number => typeof value === "number");
+    const collect = (pick: (item: Awaited<ReturnType<typeof eventStore.listRecentQuickCheckMetrics>>[number]) => number | undefined) =>
+      quickChecks.map((item) => pick(item)).filter((value): value is number => typeof value === "number");
+    const decisionTotalValues = collect((item) => item.stageTimings?.decisionTotalMs);
+    const sessionCreateValues = collect((item) => item.stageTimings?.sessionCreateMs);
+    const frontUploadValues = collect((item) => item.stageTimings?.frontUploadMs);
+    const frontOcrValues = collect((item) => item.stageTimings?.frontOcrMs);
+    const backUploadValues = collect((item) => item.stageTimings?.backUploadMs);
+    const backOcrValues = collect((item) => item.stageTimings?.backOcrMs);
+    const finalizeValues = collect((item) => item.stageTimings?.finalizeMs);
+    const telemetryComplete = quickChecks.filter((item) => item.telemetryQuality === "complete").length;
     const fallbackCount = quickChecks.filter((item) => item.usedFallback).length;
     const confidenceSum = quickChecks.reduce((sum, item) => sum + item.confidence, 0);
 
@@ -264,6 +289,19 @@ export class ComplianceService {
         p95Ms: percentile(processingValues, 95),
         fallbackRate: quickChecks.length > 0 ? fallbackCount / quickChecks.length : 0,
         avgConfidence: quickChecks.length > 0 ? confidenceSum / quickChecks.length : 0
+      },
+      scanStagePerformance: {
+        decisionTotalMs: { p50Ms: percentile(decisionTotalValues, 50), p95Ms: percentile(decisionTotalValues, 95) },
+        sessionCreateMs: { p50Ms: percentile(sessionCreateValues, 50), p95Ms: percentile(sessionCreateValues, 95) },
+        frontUploadMs: { p50Ms: percentile(frontUploadValues, 50), p95Ms: percentile(frontUploadValues, 95) },
+        frontOcrMs: { p50Ms: percentile(frontOcrValues, 50), p95Ms: percentile(frontOcrValues, 95) },
+        backUploadMs: { p50Ms: percentile(backUploadValues, 50), p95Ms: percentile(backUploadValues, 95) },
+        backOcrMs: { p50Ms: percentile(backOcrValues, 50), p95Ms: percentile(backOcrValues, 95) },
+        finalizeMs: { p50Ms: percentile(finalizeValues, 50), p95Ms: percentile(finalizeValues, 95) }
+      },
+      telemetryQuality: {
+        complete: telemetryComplete,
+        partial: Math.max(0, quickChecks.length - telemetryComplete)
       },
       syncHealth,
       statusCounts

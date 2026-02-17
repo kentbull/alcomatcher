@@ -4,7 +4,7 @@ import { z } from "zod";
 import { complianceService } from "../services/complianceService.js";
 import { ScannerService } from "../services/scannerService.js";
 import { scannerSessionService } from "../services/scannerSessionService.js";
-import type { ExpectedLabelFields, ScanImageRole } from "../types/scanner.js";
+import type { ExpectedLabelFields, ScanImageRole, ScannerStageTimings } from "../types/scanner.js";
 
 const scannerRouter = Router();
 export { scannerRouter };
@@ -54,6 +54,24 @@ function parseExpected(reqBody: Record<string, unknown>): ExpectedLabelFields {
     abvText: typeof reqBody.expectedAbvText === "string" ? reqBody.expectedAbvText : undefined,
     netContents: typeof reqBody.expectedNetContents === "string" ? reqBody.expectedNetContents : undefined,
     requireGovWarning: reqBody.requireGovWarning === "true"
+  };
+}
+
+function parseStageTimings(reqBody: Record<string, unknown>): ScannerStageTimings | undefined {
+  const raw = reqBody.clientMetrics;
+  if (!raw || typeof raw !== "object") return undefined;
+
+  const toNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  const metrics = raw as Record<string, unknown>;
+  return {
+    sessionCreateMs: toNumber(metrics.sessionCreateMs),
+    frontUploadMs: toNumber(metrics.frontUploadMs),
+    frontOcrMs: toNumber(metrics.frontOcrMs),
+    backUploadMs: toNumber(metrics.backUploadMs),
+    backOcrMs: toNumber(metrics.backOcrMs),
+    additionalUploadTotalMs: toNumber(metrics.additionalUploadTotalMs),
+    finalizeMs: toNumber(metrics.finalizeMs),
+    decisionTotalMs: toNumber(metrics.decisionTotalMs)
   };
 }
 
@@ -196,11 +214,12 @@ scannerRouter.post("/api/scanner/sessions/:sessionId/images", uploadSingle.singl
 });
 
 scannerRouter.post("/api/scanner/sessions/:sessionId/finalize", async (req, res) => {
-  const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
-  try {
-    const expected = parseExpected(req.body as Record<string, unknown>);
-    const clientSyncMode = req.headers["x-alcomatcher-client-sync"] === "crdt" ? "crdt" : "direct";
-    const finalized = await scannerSessionService.finalizeSession(req.params.sessionId, expected, clientSyncMode);
+    const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
+    try {
+      const expected = parseExpected(req.body as Record<string, unknown>);
+      const stageTimings = parseStageTimings(req.body as Record<string, unknown>);
+      const clientSyncMode = req.headers["x-alcomatcher-client-sync"] === "crdt" ? "crdt" : "direct";
+      const finalized = await scannerSessionService.finalizeSession(req.params.sessionId, expected, clientSyncMode, stageTimings);
     if (!finalized) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
     return res.json({
       sessionId: finalized.session.sessionId,

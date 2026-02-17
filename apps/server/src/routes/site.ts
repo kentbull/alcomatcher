@@ -1257,13 +1257,22 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
       function render(kpis) {
         const fallbackRate = Math.round((kpis.scanPerformance.fallbackRate || 0) * 100);
         const avgConfidence = Math.round((kpis.scanPerformance.avgConfidence || 0) * 100);
+        const stage = kpis.scanStagePerformance || {};
+        const decision = stage.decisionTotalMs || {};
+        const frontUpload = stage.frontUploadMs || {};
+        const finalize = stage.finalizeMs || {};
+        const telemetryQuality = kpis.telemetryQuality || {};
         kpiCards.innerHTML =
           card("Total Applications", kpis.totals.applications) +
           card("Quick Checks", kpis.totals.quickChecks) +
           card("Scan p50 (ms)", kpis.scanPerformance.p50Ms) +
           card("Scan p95 (ms)", kpis.scanPerformance.p95Ms) +
+          card("Decision p50 (ms)", decision.p50Ms ?? 0) +
+          card("Finalize p95 (ms)", finalize.p95Ms ?? 0) +
+          card("Front Upload p50 (ms)", frontUpload.p50Ms ?? 0) +
           card("Fallback Rate", fallbackRate + "%") +
           card("Avg Confidence", avgConfidence + "%") +
+          card("Telemetry Complete", telemetryQuality.complete ?? 0) +
           card("Synced", kpis.syncHealth.synced) +
           card("Pending Sync", kpis.syncHealth.pending_sync) +
           card("Sync Failed", kpis.syncHealth.sync_failed);

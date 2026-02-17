@@ -43,7 +43,20 @@ interface FinalizeResult {
   provider: string;
   usedFallback: boolean;
   processingMs?: number;
+  stageTimings?: StageTimingSummary;
+  telemetryQuality?: "complete" | "partial";
   request_id?: string;
+}
+
+interface StageTimingSummary {
+  sessionCreateMs?: number;
+  frontUploadMs?: number;
+  frontOcrMs?: number;
+  backUploadMs?: number;
+  backOcrMs?: number;
+  additionalUploadTotalMs?: number;
+  finalizeMs?: number;
+  decisionTotalMs?: number;
 }
 
 interface LocalImage {
@@ -72,6 +85,17 @@ interface ScanProgressEvent {
     errorCode?: string;
     errorMessage?: string;
   };
+}
+
+interface UploadResponsePayload {
+  error?: string;
+  detail?: string;
+  image?: {
+    imageId?: string;
+    uploadState?: UploadState;
+    retryCount?: number;
+  };
+  request_id?: string;
 }
 
 interface ScannerCaptureAdapter {
@@ -153,6 +177,22 @@ function App() {
   const backInputRef = useRef<HTMLInputElement | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const expansionTimerRef = useRef<number | null>(null);
+  const stageClockRef = useRef<{
+    sessionCreateStartedAt?: number;
+    sessionCreateEndedAt?: number;
+    firstCaptureStartedAt?: number;
+    uploadStartedAt: Record<string, number>;
+    uploadEndedAt: Record<string, number>;
+    ocrStartedAt: Record<string, number>;
+    ocrEndedAt: Record<string, number>;
+    finalizeStartedAt?: number;
+    finalizeEndedAt?: number;
+  }>({
+    uploadStartedAt: {},
+    uploadEndedAt: {},
+    ocrStartedAt: {},
+    ocrEndedAt: {}
+  });
 
   const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
   const isNativeIos = useMemo(() => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios", []);
@@ -178,6 +218,36 @@ function App() {
       window.clearTimeout(removeTimer);
     };
   }, []);
+
+  const roleStageKey = useCallback((role: Role, index: number) => `${role}:${index}`, []);
+
+  const buildClientMetrics = useCallback((): { metrics: StageTimingSummary; quality: "complete" | "partial" } => {
+    const clock = stageClockRef.current;
+    const duration = (start?: number, end?: number) => (typeof start === "number" && typeof end === "number" ? Math.max(0, end - start) : undefined);
+    const frontKey = roleStageKey("front", 0);
+    const backKey = roleStageKey("back", 0);
+    const additionalKeys = Object.keys(clock.uploadStartedAt).filter((key) => key.startsWith("additional:"));
+
+    const additionalUploadTotalMs = additionalKeys.reduce((sum, key) => {
+      const ms = duration(clock.uploadStartedAt[key], clock.uploadEndedAt[key]);
+      return sum + (ms ?? 0);
+    }, 0);
+
+    const metrics: StageTimingSummary = {
+      sessionCreateMs: duration(clock.sessionCreateStartedAt, clock.sessionCreateEndedAt),
+      frontUploadMs: duration(clock.uploadStartedAt[frontKey], clock.uploadEndedAt[frontKey]),
+      frontOcrMs: duration(clock.ocrStartedAt[frontKey], clock.ocrEndedAt[frontKey]),
+      backUploadMs: duration(clock.uploadStartedAt[backKey], clock.uploadEndedAt[backKey]),
+      backOcrMs: duration(clock.ocrStartedAt[backKey], clock.ocrEndedAt[backKey]),
+      additionalUploadTotalMs: additionalUploadTotalMs > 0 ? additionalUploadTotalMs : undefined,
+      finalizeMs: duration(clock.finalizeStartedAt, clock.finalizeEndedAt),
+      decisionTotalMs: duration(clock.firstCaptureStartedAt, clock.finalizeEndedAt)
+    };
+
+    const required = [metrics.sessionCreateMs, metrics.frontUploadMs, metrics.frontOcrMs, metrics.backUploadMs, metrics.backOcrMs, metrics.finalizeMs, metrics.decisionTotalMs];
+    const quality = required.every((value) => typeof value === "number") ? "complete" : "partial";
+    return { metrics, quality };
+  }, [roleStageKey]);
 
   const sortedImages = [...images].sort((a, b) => {
     const roleDiff = roleRank(a.role) - roleRank(b.role);
@@ -218,6 +288,7 @@ function App() {
   const createSession = useCallback(async (): Promise<{ sessionId: string; applicationId: string } | null> => {
     setSessionLoading(true);
     setError("");
+    stageClockRef.current.sessionCreateStartedAt = Date.now();
     try {
       const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions`, { method: "POST" }, 1);
       if (!response.ok) {
@@ -229,6 +300,7 @@ function App() {
       const payload = await response.json();
       setSessionId(payload.sessionId);
       setApplicationId(payload.applicationId);
+      stageClockRef.current.sessionCreateEndedAt = Date.now();
       return {
         sessionId: String(payload.sessionId ?? ""),
         applicationId: String(payload.applicationId ?? "")
@@ -336,6 +408,7 @@ function App() {
       const compressed = await compressImage(file);
       const additionalIndex = images.filter((entry) => entry.role === "additional").length;
       const nextIndex = role === "additional" ? existingIndex ?? additionalIndex : 0;
+      const roleKey = roleStageKey(role, nextIndex);
       const localId = existingLocalId ?? crypto.randomUUID();
       const previewUrl = existingLocalId ? "" : URL.createObjectURL(compressed);
 
@@ -359,6 +432,10 @@ function App() {
       }
       updateImageState(localId, { uploadState: "uploading", uploadError: undefined });
       setError("");
+      if (!stageClockRef.current.firstCaptureStartedAt) {
+        stageClockRef.current.firstCaptureStartedAt = Date.now();
+      }
+      stageClockRef.current.uploadStartedAt[roleKey] = Date.now();
 
       try {
         let resolvedSessionId = sessionId;
@@ -373,14 +450,37 @@ function App() {
         formData.append("image", compressed);
         formData.append("role", role);
         formData.append("index", String(nextIndex));
-        const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`, {
-          method: "POST",
-          body: formData
-        }, 1);
-        const payload = await response.json();
+        let response = await fetchWithRetry(
+          `${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`,
+          {
+            method: "POST",
+            body: formData
+          },
+          2,
+          550
+        );
+        let payload: UploadResponsePayload = await response.json();
+        if (!response.ok && response.status === 404 && payload.error === "scan_session_not_found") {
+          const created = await createSession();
+          resolvedSessionId = created?.sessionId ?? "";
+          if (!resolvedSessionId) {
+            throw new Error("Unable to recover scan session. Check network and retry.");
+          }
+          response = await fetchWithRetry(
+            `${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`,
+            {
+              method: "POST",
+              body: formData
+            },
+            1,
+            500
+          );
+          payload = await response.json();
+        }
         if (!response.ok) {
           throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
         }
+        stageClockRef.current.uploadEndedAt[roleKey] = Date.now();
         updateImageState(localId, {
           uploadState: payload.image?.uploadState ?? "ready",
           uploadError: undefined,
@@ -394,7 +494,7 @@ function App() {
         });
       }
     },
-    [apiBase, compressImage, createSession, images, sessionId, updateImageState]
+    [apiBase, compressImage, createSession, images, roleStageKey, sessionId, updateImageState]
   );
 
   const retryUpload = useCallback(
@@ -451,28 +551,51 @@ function App() {
   }, [capturePhase, captureSingle, createSession, sessionId]);
 
   const finalizeScan = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      const created = await createSession();
+      if (!created?.sessionId) return;
+    }
     if (!frontReady || !backReady) {
       setError("Front and back images must be uploaded and processed before running quick check.");
       return;
     }
     setFinalizing(true);
     setError("");
+    stageClockRef.current.finalizeStartedAt = Date.now();
     try {
-      const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${sessionId}/finalize`, {
+      let resolvedSessionId = sessionId;
+      if (!resolvedSessionId) {
+        const created = await createSession();
+        resolvedSessionId = created?.sessionId ?? "";
+      }
+      if (!resolvedSessionId) {
+        throw new Error("Unable to start scan session. Check network and retry.");
+      }
+      const telemetry = buildClientMetrics();
+      let response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/finalize`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-alcomatcher-client-sync": "crdt"
         },
         body: JSON.stringify({
-          requireGovWarning: true
+          requireGovWarning: true,
+          clientMetrics: telemetry.metrics
         })
-      }, 1);
-      const payload = await response.json();
+      }, 2, 650);
+      let payload = await response.json();
+      if (!response.ok && response.status === 404 && payload.error === "scan_session_not_found") {
+        const created = await createSession();
+        resolvedSessionId = created?.sessionId ?? "";
+        if (!resolvedSessionId) {
+          throw new Error("Scan session expired and could not be recovered.");
+        }
+        throw new Error("Scan session refreshed. Please capture front and back again.");
+      }
       if (!response.ok) {
         throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
       }
+      stageClockRef.current.finalizeEndedAt = Date.now();
       setApplicationId(payload.applicationId ?? applicationId);
       setResult(payload as FinalizeResult);
       setReportVisible(true);
@@ -481,7 +604,7 @@ function App() {
     } finally {
       setFinalizing(false);
     }
-  }, [apiBase, applicationId, backReady, frontReady, sessionId]);
+  }, [apiBase, applicationId, backReady, buildClientMetrics, createSession, frontReady, sessionId]);
 
   const spreadStack = useCallback(
     (index: number) => {
@@ -506,6 +629,17 @@ function App() {
         const role = payload.data?.role;
         const index = payload.data?.index ?? 0;
         if (!role) return;
+        const roleKey = roleStageKey(role, index);
+        if (payload.data?.stage === "image_upload_started") {
+          stageClockRef.current.uploadStartedAt[roleKey] = Date.now();
+        }
+        if (payload.data?.stage === "image_upload_completed") {
+          stageClockRef.current.uploadEndedAt[roleKey] = Date.now();
+          stageClockRef.current.ocrStartedAt[roleKey] = Date.now();
+        }
+        if (payload.data?.stage === "ocr_completed") {
+          stageClockRef.current.ocrEndedAt[roleKey] = Date.now();
+        }
         setImages((current) =>
           current.map((image) => {
             if (image.role !== role || image.index !== index) return image;
@@ -530,7 +664,7 @@ function App() {
     return () => {
       stream.close();
     };
-  }, [apiBase, applicationId]);
+  }, [apiBase, applicationId, roleStageKey]);
 
   const scanButtonLabel = captureBusy ? "Capturing..." : "Scan Another";
 
@@ -724,6 +858,12 @@ function App() {
                   </div>
                   <div>
                     <strong>Composite Time:</strong> {Math.round(result.processingMs ?? 0)} ms
+                  </div>
+                  <div>
+                    <strong>Decision Time:</strong> {Math.round(result.stageTimings?.decisionTotalMs ?? result.processingMs ?? 0)} ms
+                  </div>
+                  <div>
+                    <strong>Telemetry Quality:</strong> {(result.telemetryQuality ?? "partial").toUpperCase()}
                   </div>
                   <div className="section-title">Composite Checks</div>
                   <ul>

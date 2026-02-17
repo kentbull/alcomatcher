@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { complianceService } from "./complianceService.js";
 import { realtimeEventBus } from "./realtimeEventBus.js";
 import { ScannerService } from "./scannerService.js";
-import type { ExpectedLabelFields, PerImageScanResult, ScanImageRole, ScannerQuickCheckResult } from "../types/scanner.js";
+import type { ExpectedLabelFields, PerImageScanResult, ScanImageRole, ScannerQuickCheckResult, ScannerStageTimings } from "../types/scanner.js";
 
 export type ScanSessionStatus = "draft_scan_started" | "collecting_images" | "ready_to_finalize" | "finalized" | "pruned";
 export type ScanImageUploadState = "queued" | "uploading" | "processing" | "ready" | "failed";
@@ -134,10 +134,17 @@ export class ScannerSessionService {
   async finalizeSession(
     sessionId: string,
     expected: ExpectedLabelFields | undefined,
-    clientSyncMode: "crdt" | "direct"
+    clientSyncMode: "crdt" | "direct",
+    clientStageTimings?: ScannerStageTimings
   ): Promise<{ session: ScanSession; result: ScannerQuickCheckResult } | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
+    if (session.status === "finalized" && session.finalizedResult) {
+      return {
+        session,
+        result: session.finalizedResult
+      };
+    }
 
     const front = session.images.find((img) => img.role === "front" && img.uploadState === "ready" && img.result);
     const back = session.images.find((img) => img.role === "back" && img.uploadState === "ready" && img.result);
@@ -145,8 +152,9 @@ export class ScannerSessionService {
       throw new Error("required_images_not_ready");
     }
 
+    const finalizeStartedAt = Date.now();
     this.emitSessionProgress(session, "composite_started", "in_progress");
-    const result = await this.scannerService.quickCheckMultiImage(
+    const quickCheckResult = await this.scannerService.quickCheckMultiImage(
       session.images
         .filter((img) => img.uploadState === "ready")
         .map((img) => ({
@@ -157,6 +165,24 @@ export class ScannerSessionService {
       ,
       expected
     );
+
+    const serverStageTimings = buildServerStageTimings(session, quickCheckResult, Date.now() - finalizeStartedAt);
+    const combinedStageTimings: ScannerStageTimings = {
+      ...serverStageTimings,
+      ...(clientStageTimings ?? {})
+    };
+    const requiredClientFields = ["sessionCreateMs", "frontUploadMs", "frontOcrMs", "backUploadMs", "backOcrMs", "finalizeMs", "decisionTotalMs"];
+    const telemetryQuality = requiredClientFields.every(
+      (field) => typeof (clientStageTimings as Record<string, unknown> | undefined)?.[field] === "number"
+    )
+      ? "complete"
+      : "partial";
+
+    const result: ScannerQuickCheckResult = {
+      ...quickCheckResult,
+      stageTimings: combinedStageTimings,
+      telemetryQuality
+    };
 
     await complianceService.recordScannerQuickCheck(session.applicationId, result, expected);
     await complianceService.mergeClientSync(session.applicationId, {
@@ -241,3 +267,17 @@ export class ScannerSessionService {
 }
 
 export const scannerSessionService = new ScannerSessionService();
+
+function buildServerStageTimings(session: ScanSession, result: ScannerQuickCheckResult, finalizeMs: number): ScannerStageTimings {
+  const front = session.images.find((img) => img.role === "front" && img.result);
+  const back = session.images.find((img) => img.role === "back" && img.result);
+  const additional = session.images.filter((img) => img.role === "additional" && img.result);
+
+  return {
+    frontOcrMs: front?.result?.processingMs,
+    backOcrMs: back?.result?.processingMs,
+    additionalUploadTotalMs: additional.reduce((sum, img) => sum + (img.result?.processingMs ?? 0), 0),
+    finalizeMs,
+    decisionTotalMs: result.processingMs
+  };
+}

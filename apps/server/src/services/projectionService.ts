@@ -11,6 +11,8 @@ interface ScannerQuickCheckEventPayload {
   composite?: ScannerQuickCheckResult["composite"];
   images?: ScannerQuickCheckResult["images"];
   checks: ScannerQuickCheckResult["checks"];
+  stageTimings?: ScannerQuickCheckResult["stageTimings"];
+  telemetryQuality?: ScannerQuickCheckResult["telemetryQuality"];
 }
 
 export interface ApplicationProjection {
@@ -140,7 +142,9 @@ function parseScannerQuickCheckPayload(payload: Record<string, unknown>): Scanne
     confidence: candidate.confidence,
     processingMs: candidate.processingMs,
     provider: candidate.provider,
-    usedFallback: Boolean(candidate.usedFallback)
+    usedFallback: Boolean(candidate.usedFallback),
+    stageTimings: candidate.stageTimings,
+    telemetryQuality: candidate.telemetryQuality
   };
 }
 
