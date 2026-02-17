@@ -5,6 +5,10 @@ body {
   font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
 }
 
+body.app-ready {
+  background: transparent !important;
+}
+
 :root {
   --wood-dark: #2b1a13;
   --wood-mid: #4f3323;
@@ -39,7 +43,7 @@ ion-app {
   grid-template-rows: auto 1fr auto auto;
   gap: 0.48rem;
   overflow: hidden;
-  padding: calc(env(safe-area-inset-top, 0px) + 0.58rem) 1rem calc(env(safe-area-inset-bottom, 0px) + 0.84rem);
+  padding: calc(env(safe-area-inset-top, 0px) + 1.12rem) 1rem calc(env(safe-area-inset-bottom, 0px) + 0.84rem);
 }
 
 .scanner-shell::before {
