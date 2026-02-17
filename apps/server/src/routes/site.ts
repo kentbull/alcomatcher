@@ -403,6 +403,22 @@ siteRouter.get("/scanner", (_req, res) => {
         border: 1px solid rgba(52,35,24,0.28);
       }
       #result ul { margin: 6px 0 0; padding-left: 20px; }
+      details {
+        background: rgba(23, 15, 11, 0.5);
+        border: 1px solid rgba(233, 201, 149, 0.2);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      summary { cursor: pointer; font-weight: 700; color: #ffe2af; }
+      details pre {
+        margin-top: 8px;
+        white-space: pre-wrap;
+        background: #f7efdf;
+        border: 1px solid rgba(49,32,23,0.24);
+        color: #2f1d13;
+        border-radius: 10px;
+        padding: 10px;
+      }
       .small { font-size: 0.92rem; opacity: 0.95; color: rgba(245, 227, 193, 0.82); }
       .nav { margin-top: 12px; }
       .nav a { color: #f6ddb2; text-decoration: none; font-weight: 700; }
@@ -417,14 +433,17 @@ siteRouter.get("/scanner", (_req, res) => {
         <h1>Scanner</h1>
         <p>Capture front and back images, then run the quick compliance check.</p>
 
-        <div class="grid">
-          <input id="expectedBrandName" type="text" placeholder="Expected Brand Name (optional)" />
-          <input id="expectedClassType" type="text" placeholder="Expected Class/Type (optional)" />
-        </div>
-        <div class="grid">
-          <input id="expectedAbvText" type="text" placeholder="Expected ABV (optional)" />
-          <input id="expectedNetContents" type="text" placeholder="Expected Net Contents (optional)" />
-        </div>
+        <details>
+          <summary>Advanced Expected Fields (Optional)</summary>
+          <div class="grid" style="margin-top:10px">
+            <input id="expectedBrandName" type="text" placeholder="Expected Brand Name (optional)" />
+            <input id="expectedClassType" type="text" placeholder="Expected Class/Type (optional)" />
+          </div>
+          <div class="grid" style="margin-top:8px">
+            <input id="expectedAbvText" type="text" placeholder="Expected ABV (optional)" />
+            <input id="expectedNetContents" type="text" placeholder="Expected Net Contents (optional)" />
+          </div>
+        </details>
 
         <div class="row">
           <label>Front Label Photo</label>
@@ -444,6 +463,10 @@ siteRouter.get("/scanner", (_req, res) => {
 
         <button id="runCheck" type="button">Run Quick Check</button>
         <div id="result"></div>
+        <details id="devPanel" style="display:none">
+          <summary>Developer Tools</summary>
+          <pre id="devInfo"></pre>
+        </details>
         <div class="small">Front/back are required. Additional photos help with curved or partial labels.</div>
       </section>
       <div class="nav"><a href="/">← Back to Home</a></div>
@@ -460,18 +483,39 @@ siteRouter.get("/scanner", (_req, res) => {
       const expectedClassTypeInput = document.getElementById("expectedClassType");
       const expectedAbvTextInput = document.getElementById("expectedAbvText");
       const expectedNetContentsInput = document.getElementById("expectedNetContents");
+      const devPanel = document.getElementById("devPanel");
+      const devInfo = document.getElementById("devInfo");
 
       const state = {
         front: null,
         back: null,
-        additional: []
+        additional: [],
+        statuses: {}
       };
+
+      function fileKey(role, index) {
+        return role + ":" + index;
+      }
+
+      function setStageStatus(status) {
+        const files = listFiles();
+        files.forEach((entry) => {
+          state.statuses[fileKey(entry.role, entry.index)] = status;
+        });
+      }
 
       function listFiles() {
         const files = [];
-        if (state.front) files.push({ role: "front", file: state.front, status: "ready" });
-        if (state.back) files.push({ role: "back", file: state.back, status: "ready" });
-        state.additional.forEach((file, index) => files.push({ role: "additional #" + (index + 1), file, status: "ready" }));
+        if (state.front) files.push({ role: "front", index: 0, file: state.front, status: state.statuses[fileKey("front", 0)] || "ready" });
+        if (state.back) files.push({ role: "back", index: 0, file: state.back, status: state.statuses[fileKey("back", 0)] || "ready" });
+        state.additional.forEach((file, index) =>
+          files.push({
+            role: "additional #" + (index + 1),
+            index,
+            file,
+            status: state.statuses[fileKey("additional #" + (index + 1), index)] || "ready"
+          })
+        );
         return files;
       }
 
@@ -482,7 +526,9 @@ siteRouter.get("/scanner", (_req, res) => {
           return "<div class='thumb " + entry.status + "'><img src='" + url + "' alt='preview' /><div class='meta'>" + entry.role + " · " + entry.status.toUpperCase() + "</div></div>";
         }).join("");
 
-        uploadList.innerHTML = files.map((entry) => "<li>" + entry.role + ": " + entry.status.toUpperCase() + "</li>").join("");
+        uploadList.innerHTML = files.length
+          ? files.map((entry) => "<li>" + entry.role + ": " + entry.status.toUpperCase() + "</li>").join("")
+          : "<li>No images selected yet.</li>";
       }
 
       function renderError(message) {
@@ -493,14 +539,14 @@ siteRouter.get("/scanner", (_req, res) => {
       }
 
       function mapScannerError(payload, statusCode) {
-        if (payload && payload.error === "photo_too_large") return "One or more images are larger than 12MB.";
-        if (payload && payload.error === "front_photo_required") return "Front label photo is required.";
-        if (payload && payload.error === "back_photo_required") return "Back label photo is required.";
-        if (statusCode === 413) return "Image upload too large. Retry with smaller images.";
-        const requestRef = payload && payload.request_id ? " (ref: " + payload.request_id + ")" : "";
-        if (payload && payload.detail) return payload.detail + requestRef;
-        if (payload && payload.error) return payload.error + requestRef;
-        return "Try again in a few seconds.";
+        let message = "Try again in a few seconds.";
+        if (payload && payload.error === "photo_too_large") message = "One or more images are larger than 12MB.";
+        else if (payload && payload.error === "front_photo_required") message = "Front label photo is required.";
+        else if (payload && payload.error === "back_photo_required") message = "Back label photo is required.";
+        else if (statusCode === 413) message = "Image upload too large. Retry with smaller images.";
+        else if (payload && payload.detail) message = payload.detail;
+        else if (payload && payload.error) message = payload.error;
+        return { message, requestId: payload && payload.request_id ? payload.request_id : null };
       }
 
       function renderResult(scan) {
@@ -524,16 +570,21 @@ siteRouter.get("/scanner", (_req, res) => {
 
       frontInput.addEventListener("change", (event) => {
         state.front = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+        state.statuses[fileKey("front", 0)] = "ready";
         renderPreviews();
       });
 
       backInput.addEventListener("change", (event) => {
         state.back = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+        state.statuses[fileKey("back", 0)] = "ready";
         renderPreviews();
       });
 
       additionalInput.addEventListener("change", (event) => {
         state.additional = Array.from(event.target.files || []).slice(0, 4);
+        state.additional.forEach((_file, index) => {
+          state.statuses[fileKey("additional #" + (index + 1), index)] = "ready";
+        });
         renderPreviews();
       });
 
@@ -549,6 +600,9 @@ siteRouter.get("/scanner", (_req, res) => {
         result.style.background = "#fffbf2";
         result.style.borderColor = "rgba(0,0,0,0.1)";
         result.innerHTML = "Uploading images and running checks...";
+        if (devPanel) devPanel.style.display = "none";
+        setStageStatus("uploading");
+        renderPreviews();
 
         try {
           const formData = new FormData();
@@ -564,12 +618,27 @@ siteRouter.get("/scanner", (_req, res) => {
           const scanRes = await fetch("/api/scanner/quick-check", { method: "POST", body: formData });
           if (!scanRes.ok) {
             const payload = await scanRes.json().catch(() => ({}));
-            throw new Error(mapScannerError(payload, scanRes.status));
+            const mapped = mapScannerError(payload, scanRes.status);
+            if (devPanel && devInfo && mapped.requestId) {
+              devPanel.style.display = "block";
+              devInfo.textContent = "request_id: " + mapped.requestId + "\\nerror: " + (payload.error || "unknown");
+            }
+            throw new Error(mapped.message);
           }
 
+          setStageStatus("processing");
+          renderPreviews();
           const scan = await scanRes.json();
+          setStageStatus("ready");
+          renderPreviews();
+          if (devPanel && devInfo) {
+            devPanel.style.display = "block";
+            devInfo.textContent = "application_id: " + (scan.applicationId || "n/a") + "\\nrequest_id: " + (scan.request_id || "n/a");
+          }
           renderResult(scan);
         } catch (error) {
+          setStageStatus("failed");
+          renderPreviews();
           renderError(error && error.message ? error.message : "Try again in a few seconds.");
         } finally {
           runBtn.disabled = false;
@@ -682,7 +751,7 @@ siteRouter.get("/admin/queue", (_req, res) => {
             "<td>" + (quickCheck.summary || "n/a") + "</td>" +
             "<td>" + confidence + "</td>" +
             "<td>" + (item.updatedAt || "n/a") + "</td>" +
-            "<td><a href='/api/applications/" + item.applicationId + "/report' target='_blank' rel='noreferrer'>JSON</a></td>" +
+            "<td><a href='/admin/report/" + item.applicationId + "'>View Report</a></td>" +
           "</tr>";
         }).join("");
       }
@@ -716,6 +785,294 @@ siteRouter.get("/admin/queue", (_req, res) => {
         events.addEventListener("batch.progress", scheduleQueueRefresh);
       }
       loadQueue();
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/admin/report/:applicationId", (req, res) => {
+  const applicationId = req.params.applicationId;
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Compliance Report</title>
+    <style>
+      :root {
+        --bg: linear-gradient(160deg, #6d4d37 0%, #4f3528 42%, #31231b 100%);
+        --card: rgba(24, 15, 11, 0.62);
+        --ink: #f3e4c8;
+        --accent: #c08a3c;
+        --warn: #d8a545;
+        --bad: #c24b3f;
+        --good: #3f9a5b;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif; background: var(--bg); color: var(--ink); }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 28px; }
+      .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(236, 202, 150, 0.24);
+        padding: 8px 12px;
+        text-decoration: none;
+        color: #24150d;
+        background: var(--accent);
+        font-weight: 700;
+      }
+      .btn-muted { background: rgba(255, 250, 242, 0.95); }
+      .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+      .card {
+        background: var(--card);
+        border: 1px solid rgba(235, 201, 147, 0.22);
+        border-radius: 12px;
+        padding: 12px;
+      }
+      h1 { margin: 0 0 6px; color: #ffe5b7; }
+      h2 { margin: 0 0 10px; color: #ffdeab; font-size: 1.08rem; }
+      .k { font-weight: 800; font-size: 1.3rem; }
+      .muted { color: rgba(246, 228, 199, 0.82); }
+      .status {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.84rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+      .status-pass { background: rgba(63,154,91,0.2); color: #b8f3c6; border: 1px solid rgba(63,154,91,0.4); }
+      .status-fail { background: rgba(194,75,63,0.2); color: #ffd0ca; border: 1px solid rgba(194,75,63,0.4); }
+      .status-review { background: rgba(216,165,69,0.2); color: #ffe7b7; border: 1px solid rgba(216,165,69,0.4); }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: var(--card);
+        border: 1px solid rgba(233, 201, 146, 0.22);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      th, td { text-align: left; padding: 9px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.92rem; vertical-align: top; }
+      th { background: rgba(225, 181, 110, 0.2); color: #ffe4b1; }
+      details {
+        margin-top: 10px;
+        background: rgba(23, 15, 11, 0.45);
+        border: 1px solid rgba(236, 203, 151, 0.2);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      summary { cursor: pointer; font-weight: 700; color: #ffe2af; }
+      pre {
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+        background: #f7efdf;
+        color: #2f1d13;
+        border: 1px solid rgba(49, 32, 23, 0.22);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      .loading {
+        margin-top: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #ffe3b0;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 232, 194, 0.35);
+        border-top-color: #f4c06f;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .err {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: rgba(160, 46, 36, 0.2);
+        border: 1px solid rgba(194, 75, 63, 0.4);
+      }
+      .nav a { color: #f6ddb2; text-decoration: none; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <div class="toolbar">
+        <a class="btn btn-muted" href="/admin/queue">Back to Queue</a>
+        <button id="refreshBtn" class="btn" type="button">Refresh Report</button>
+      </div>
+      <h1>Compliance Report</h1>
+      <p class="muted">Application: <strong id="appId">${applicationId}</strong></p>
+      <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading report...</span></div>
+      <div id="error" class="err" style="display:none"></div>
+      <section id="content" style="display:none">
+        <section class="grid" id="summaryCards"></section>
+        <section style="margin-top:12px">
+          <h2>Itemized Compliance Checks</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Check</th>
+                <th>Status</th>
+                <th>Severity</th>
+                <th>Rule</th>
+                <th>Evidence</th>
+                <th>Citation</th>
+                <th>Failure Reason</th>
+              </tr>
+            </thead>
+            <tbody id="checkRows"></tbody>
+          </table>
+        </section>
+        <section style="margin-top:12px" class="card">
+          <h2>Extracted Fields</h2>
+          <div id="extracted"></div>
+        </section>
+        <section style="margin-top:12px">
+          <h2>Event Timeline</h2>
+          <table>
+            <thead><tr><th>When</th><th>Event</th><th>Notes</th></tr></thead>
+            <tbody id="timelineRows"></tbody>
+          </table>
+        </section>
+        <details>
+          <summary>Developer Tools</summary>
+          <p><a id="jsonLink" target="_blank" rel="noreferrer">Open Raw JSON Report</a></p>
+          <pre id="rawJson"></pre>
+        </details>
+      </section>
+      <p class="nav" style="margin-top:12px"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/">Home</a></p>
+    </main>
+    <script>
+      const appId = document.getElementById("appId").textContent;
+      const loading = document.getElementById("loading");
+      const errorBox = document.getElementById("error");
+      const content = document.getElementById("content");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const summaryCards = document.getElementById("summaryCards");
+      const checkRows = document.getElementById("checkRows");
+      const extracted = document.getElementById("extracted");
+      const timelineRows = document.getElementById("timelineRows");
+      const jsonLink = document.getElementById("jsonLink");
+      const rawJson = document.getElementById("rawJson");
+      let refreshTimer = null;
+
+      function statusClass(value) {
+        if (value === "pass" || value === "matched" || value === "approved" || value === "synced") return "status-pass";
+        if (value === "fail" || value === "rejected" || value === "sync_failed") return "status-fail";
+        return "status-review";
+      }
+
+      function badge(value) {
+        return "<span class='status " + statusClass(value) + "'>" + String(value || "unknown").toUpperCase() + "</span>";
+      }
+
+      function card(label, valueHtml) {
+        return "<article class='card'><div class='muted'>" + label + "</div><div class='k'>" + valueHtml + "</div></article>";
+      }
+
+      function safe(value) {
+        if (value === null || value === undefined || value === "") return "n/a";
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function render(payload) {
+        const report = payload.report || {};
+        const latest = report.latestQuickCheck || {};
+        const conf = typeof latest.confidence === "number" ? Math.round(latest.confidence * 100) + "%" : "n/a";
+        summaryCards.innerHTML =
+          card("Decision", badge(report.status || latest.summary || "unknown")) +
+          card("Sync State", badge(report.syncState || "unknown")) +
+          card("Confidence", conf) +
+          card("Generated", safe(report.generatedAt));
+
+        const checks = report.checks || [];
+        checkRows.innerHTML = checks.length
+          ? checks.map((check) =>
+              "<tr>" +
+                "<td>" + safe(check.label) + "</td>" +
+                "<td>" + badge(check.status) + "</td>" +
+                "<td>" + safe(check.severity) + "</td>" +
+                "<td>" + safe(check.ruleId) + "</td>" +
+                "<td>" + safe(check.evidenceText) + "</td>" +
+                "<td>" + safe(check.citationRef) + "</td>" +
+                "<td>" + safe(check.failureReason) + "</td>" +
+              "</tr>"
+            ).join("")
+          : "<tr><td colspan='7'>No checks found.</td></tr>";
+
+        const fields = report.extracted || {};
+        extracted.innerHTML =
+          "<div>Brand: <strong>" + safe(fields.brandName) + "</strong></div>" +
+          "<div>Class/Type: <strong>" + safe(fields.classType) + "</strong></div>" +
+          "<div>ABV: <strong>" + safe(fields.abvText) + "</strong></div>" +
+          "<div>Net Contents: <strong>" + safe(fields.netContents) + "</strong></div>" +
+          "<div>Government Warning: <strong>" + (fields.hasGovWarning ? "detected" : "not detected") + "</strong></div>";
+
+        const events = report.eventTimeline || [];
+        timelineRows.innerHTML = events.length
+          ? events.map((event) => {
+              const notes = event.eventType === "ScannerQuickCheckRecorded"
+                ? "Summary: " + safe(event.payload && event.payload.summary) + "; Confidence: " + safe(event.payload && event.payload.confidence)
+                : "Keys: " + Object.keys(event.payload || {}).join(", ");
+              return "<tr><td>" + safe(event.createdAt) + "</td><td>" + safe(event.eventType) + "</td><td>" + safe(notes) + "</td></tr>";
+            }).join("")
+          : "<tr><td colspan='3'>No events found.</td></tr>";
+
+        jsonLink.href = "/api/applications/" + encodeURIComponent(appId) + "/report";
+        rawJson.textContent = JSON.stringify(payload, null, 2);
+      }
+
+      async function loadReport() {
+        loading.style.display = "inline-flex";
+        errorBox.style.display = "none";
+        content.style.display = "none";
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "Loading...";
+        try {
+          const response = await fetch("/api/applications/" + encodeURIComponent(appId) + "/report");
+          if (!response.ok) throw new Error("Unable to load report.");
+          const payload = await response.json();
+          render(payload);
+          content.style.display = "block";
+        } catch (_error) {
+          errorBox.style.display = "block";
+          errorBox.innerHTML = "Unable to load report right now. <button id='retryBtn' class='btn' type='button' style='margin-left:8px'>Retry</button>";
+          const retryBtn = document.getElementById("retryBtn");
+          if (retryBtn) retryBtn.addEventListener("click", loadReport);
+        } finally {
+          loading.style.display = "none";
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "Refresh Report";
+        }
+      }
+
+      function scheduleRefresh() {
+        if (refreshTimer) return;
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          loadReport();
+        }, 350);
+      }
+
+      refreshBtn.addEventListener("click", loadReport);
+      if (typeof EventSource !== "undefined") {
+        const events = new EventSource("/api/events/stream?scope=admin&applicationId=" + encodeURIComponent(appId));
+        events.addEventListener("application.status_changed", scheduleRefresh);
+        events.addEventListener("sync.ack", scheduleRefresh);
+      }
+      loadReport();
     </script>
   </body>
 </html>`);
@@ -757,6 +1114,14 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
         padding: 10px;
         white-space: pre-wrap;
       }
+      details {
+        margin-top: 12px;
+        background: rgba(24, 15, 11, 0.45);
+        border: 1px solid rgba(236, 204, 151, 0.2);
+        border-radius: 10px;
+        padding: 10px;
+      }
+      summary { cursor: pointer; font-weight: 700; color: #ffe3af; }
       .nav a { text-decoration: none; font-weight: 700; color: #f3d9ab; }
     </style>
   </head>
@@ -774,8 +1139,10 @@ siteRouter.get("/admin/dashboard", (_req, res) => {
         <button id="backfillBtn" type="button">Backfill pending_sync -> synced</button>
       </div>
       <section class="cards" id="kpiCards"></section>
-      <h3>Raw KPI Payload</h3>
-      <pre id="raw"></pre>
+      <details>
+        <summary>Developer Tools</summary>
+        <pre id="raw"></pre>
+      </details>
       <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/admin/batches">Batch Drill-Down</a> · <a href="/">Home</a></p>
     </main>
     <script>
@@ -866,6 +1233,9 @@ siteRouter.get("/admin/batches", (_req, res) => {
       tr.clickable { cursor:pointer; }
       tr.clickable:hover { background:rgba(255,255,255,0.06); }
       pre { white-space:pre-wrap; background:#f7efdf; border:1px solid rgba(49,32,23,0.24); color:#2f1d13; border-radius:10px; padding:10px; }
+      .detail-line { margin-bottom: 6px; color: rgba(247, 231, 204, 0.95); }
+      details { margin-top:10px; background:rgba(23,15,11,0.45); border:1px solid rgba(236,203,151,0.2); border-radius:10px; padding:10px; }
+      summary { cursor:pointer; font-weight:700; color:#ffe2af; }
       .nav a { color:#f3d9ab; text-decoration:none; font-weight:700; }
     </style>
   </head>
@@ -889,7 +1259,12 @@ siteRouter.get("/admin/batches", (_req, res) => {
         </article>
         <article class="panel">
           <h3>Line Item Detail</h3>
-          <pre id="itemDetail">Select a line item to view rich failure reasons and retry history.</pre>
+          <div id="itemDetail" class="detail-line">Select a line item to view rich failure reasons and retry history.</div>
+          <div id="attempts"></div>
+          <details>
+            <summary>Developer Tools</summary>
+            <pre id="rawItemDetail"></pre>
+          </details>
         </article>
       </section>
       <p class="nav"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/">Home</a></p>
@@ -898,15 +1273,26 @@ siteRouter.get("/admin/batches", (_req, res) => {
       const batchSelect = document.getElementById("batchSelect");
       const itemRows = document.getElementById("itemRows");
       const itemDetail = document.getElementById("itemDetail");
+      const attempts = document.getElementById("attempts");
+      const rawItemDetail = document.getElementById("rawItemDetail");
       const refreshBtn = document.getElementById("refreshBtn");
       let currentBatchId = "";
       let refreshTimer = null;
+
+      function esc(value) {
+        return String(value === null || value === undefined ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
 
       async function loadBatches() {
         const response = await fetch("/api/batches?limit=100");
         const payload = await response.json();
         const batches = payload.batches || [];
-        batchSelect.innerHTML = batches.map((b) => "<option value='" + b.batchId + "'>" + b.batchId + " · " + b.status + " · " + b.updatedAt + "</option>").join("");
+        batchSelect.innerHTML = batches.map((b) => "<option value='" + esc(b.batchId) + "'>" + esc(b.batchId) + " · " + esc(b.status) + " · " + esc(b.updatedAt) + "</option>").join("");
         if (!currentBatchId && batches.length > 0) currentBatchId = batches[0].batchId;
         if (currentBatchId) batchSelect.value = currentBatchId;
       }
@@ -925,12 +1311,12 @@ siteRouter.get("/admin/batches", (_req, res) => {
           return;
         }
         itemRows.innerHTML = items.map((item) =>
-          "<tr class='clickable' data-id='" + item.batchItemId + "'>" +
-            "<td>" + item.clientLabelId + "</td>" +
-            "<td>" + item.imageFilename + "</td>" +
-            "<td>" + item.status + "</td>" +
-            "<td>" + (item.retryCount || 0) + "</td>" +
-            "<td>" + (item.lastErrorCode || "none") + "</td>" +
+          "<tr class='clickable' data-id='" + esc(item.batchItemId) + "'>" +
+            "<td>" + esc(item.clientLabelId) + "</td>" +
+            "<td>" + esc(item.imageFilename) + "</td>" +
+            "<td>" + esc(item.status) + "</td>" +
+            "<td>" + esc(item.retryCount || 0) + "</td>" +
+            "<td>" + esc(item.lastErrorCode || "none") + "</td>" +
           "</tr>"
         ).join("");
       }
@@ -938,7 +1324,23 @@ siteRouter.get("/admin/batches", (_req, res) => {
       async function loadItemDetail(batchItemId) {
         const response = await fetch("/api/batches/" + encodeURIComponent(currentBatchId) + "/items/" + encodeURIComponent(batchItemId));
         const payload = await response.json();
-        itemDetail.textContent = JSON.stringify(payload, null, 2);
+        const item = payload.item || {};
+        const attemptList = payload.attempts || [];
+        itemDetail.innerHTML =
+          "<div class='detail-line'><strong>Client Label:</strong> " + esc(item.clientLabelId || "n/a") + "</div>" +
+          "<div class='detail-line'><strong>Filename:</strong> " + esc(item.imageFilename || "n/a") + "</div>" +
+          "<div class='detail-line'><strong>Status:</strong> " + esc(item.status || "n/a") + "</div>" +
+          "<div class='detail-line'><strong>Retry Count:</strong> " + esc(item.retryCount || 0) + "</div>" +
+          "<div class='detail-line'><strong>Error Code:</strong> " + esc(item.lastErrorCode || "none") + "</div>" +
+          "<div class='detail-line'><strong>Error Reason:</strong> " + esc(item.errorReason || "none") + "</div>";
+        attempts.innerHTML = attemptList.length
+          ? "<h4>Attempt History</h4><table><thead><tr><th>#</th><th>Outcome</th><th>Error</th><th>Reason</th><th>When</th></tr></thead><tbody>" +
+              attemptList.map((attempt) =>
+                "<tr><td>" + esc(attempt.attemptNo) + "</td><td>" + esc(attempt.outcome) + "</td><td>" + esc(attempt.errorCode || "none") + "</td><td>" + esc(attempt.errorReason || "n/a") + "</td><td>" + esc(attempt.createdAt) + "</td></tr>"
+              ).join("") +
+            "</tbody></table>"
+          : "<p class='detail-line'>No attempts recorded.</p>";
+        rawItemDetail.textContent = JSON.stringify(payload, null, 2);
       }
 
       function wireRowClicks() {
