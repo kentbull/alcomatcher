@@ -1,0 +1,17 @@
+[Unit]
+Description=AlcoMatcher OpenClaw scanner failure alerts
+After=docker.service network.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/alcomatcher
+Environment=TELEGRAM_TARGET=593360085
+Environment=COOLDOWN_SECONDS=120
+ExecStart=/bin/bash /opt/alcomatcher/infra/openclaw/alert-scanner-failures.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import pino from "pino";
@@ -30,6 +31,12 @@ app.use(
     }
   })
 );
+app.use((req, res, next) => {
+  const requestId = req.header("x-request-id") || randomUUID();
+  res.setHeader("x-request-id", requestId);
+  req.headers["x-request-id"] = requestId;
+  next();
+});
 app.use(express.json());
 app.use(siteRouter);
 app.use(healthRouter);

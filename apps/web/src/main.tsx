@@ -46,6 +46,13 @@ interface ScannerResponse {
   confidence: number;
   provider: string;
   usedFallback: boolean;
+  request_id?: string;
+}
+
+interface ScannerErrorPayload {
+  error?: string;
+  detail?: string;
+  request_id?: string;
 }
 
 function base64ToBlob(base64Data: string, mimeType = "image/jpeg") {
@@ -76,8 +83,31 @@ function App() {
 
   const statusClass = result ? `status-${result.summary}` : "";
 
+  const mapScannerError = (payload: ScannerErrorPayload, statusCode: number) => {
+    if (payload.error === "photo_too_large" || statusCode === 413) {
+      return "Image is too large. Please use a photo under 12MB.";
+    }
+    if (payload.error === "photo_required") {
+      return "Select or capture a label image first.";
+    }
+    if (payload.detail) {
+      return payload.request_id ? `${payload.detail} (ref: ${payload.request_id})` : payload.detail;
+    }
+    if (payload.error) {
+      return payload.request_id ? `${payload.error} (ref: ${payload.request_id})` : payload.error;
+    }
+    return `HTTP_${statusCode}`;
+  };
+
   const handleFileSelected = (file: File | null) => {
     if (!file) return;
+    if (file.size > 12 * 1024 * 1024) {
+      setError("Image is too large. Please use a photo under 12MB.");
+      setSelectedFile(null);
+      setPreviewUrl("");
+      setResult(null);
+      return;
+    }
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
     setResult(null);
@@ -130,8 +160,8 @@ function App() {
       });
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({ error: `HTTP_${response.status}` }));
-        throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
+        const payload = (await response.json().catch(() => ({}))) as ScannerErrorPayload;
+        throw new Error(mapScannerError(payload, response.status));
       }
 
       const payload = (await response.json()) as ScannerResponse;

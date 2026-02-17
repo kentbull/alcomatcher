@@ -275,6 +275,16 @@ Use cases:
 - Deployment status summarization.
 - Incident triage and log interpretation.
 - Runbook execution support (health checks, rollback, cert checks).
+- Automated Telegram alerts for scanner/API failures (via existing OpenClaw group route).
+
+Baseline alert wiring:
+- Monitor `nginx` and `app` container logs for:
+  - upload/body-size rejections
+  - scanner quick-check exceptions
+  - repeated OCR/runtime failures
+- Send concise notifications through OpenClaw:
+  - `openclaw message send -t 593360085 -m "<alert>"`
+- Add cooldown/rate-limit to prevent alert storms.
 
 Operational constraints:
 - Separate service/user.

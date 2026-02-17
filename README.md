@@ -33,7 +33,24 @@ Scanner-first, offline-first compliance platform foundation for week one.
 - Current OCR for quick check runs on server-side local Tesseract.
 - Your iPhone/browser uploads image to server for OCR and check evaluation.
 - We are not shipping native Tesseract binaries inside the iOS app in this slice.
+- Upload limit for scanner photos is `12MB` (Nginx ingress allows up to `15MB`).
 
 ## Architecture Notes
 - `ComplianceApplication` is modeled as a local-first CRDT document synced to the server.
 - Server state remains event-sourced and query projections are derived from immutable events.
+
+## CRDT Sync API (Week-One Foundation)
+- Push local operations:
+  - `POST /api/applications/:applicationId/crdt-ops`
+  - body: `{ "actorId": "device-or-user-id", "ops": [{ "sequence": 1, "payload": { ... } }] }`
+- Pull operations after a sequence:
+  - `GET /api/applications/:applicationId/crdt-ops?afterSequence=10`
+
+## OpenClaw Telegram Alerts (Scanner Failures)
+- Alert script: `infra/openclaw/alert-scanner-failures.sh`
+- Systemd unit template: `infra/openclaw/alcomatcher-openclaw-alerts.service`
+- Example VM install:
+  - `chmod +x /opt/alcomatcher/infra/openclaw/alert-scanner-failures.sh`
+  - `cp /opt/alcomatcher/infra/openclaw/alcomatcher-openclaw-alerts.service /etc/systemd/system/`
+  - `systemctl daemon-reload`
+  - `systemctl enable --now alcomatcher-openclaw-alerts.service`

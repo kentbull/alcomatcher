@@ -53,3 +53,15 @@ export interface ComplianceEvent {
   payload: Record<string, unknown>;
   createdAt: string;
 }
+
+/**
+ * Minimal CRDT operation envelope for local-first sync.
+ */
+export interface CrdtOperation {
+  opId: string;
+  applicationId: string;
+  actorId: string;
+  sequence: number;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}

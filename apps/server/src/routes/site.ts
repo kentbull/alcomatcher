@@ -246,6 +246,22 @@ siteRouter.get("/scanner", (_req, res) => {
         result.innerHTML = "<strong>Check failed.</strong> " + message;
       }
 
+      function mapScannerError(payload, statusCode) {
+        if (payload && payload.error === "photo_too_large") {
+          return "Image is too large. Please choose a photo under 12MB.";
+        }
+        if (statusCode === 413) {
+          return "Image is too large for upload. Please retry with a smaller image.";
+        }
+        if (payload && payload.error === "photo_required") {
+          return "Capture or upload a label first.";
+        }
+        const requestRef = payload && payload.request_id ? " (ref: " + payload.request_id + ")" : "";
+        if (payload && payload.detail) return payload.detail + requestRef;
+        if (payload && payload.error) return payload.error + requestRef;
+        return "Try again in a few seconds.";
+      }
+
       function renderResult(scan) {
         const statusColor =
           scan.summary === "pass"
@@ -287,6 +303,12 @@ siteRouter.get("/scanner", (_req, res) => {
       photoInput.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
+        if (file.size > 12 * 1024 * 1024) {
+          selectedFile = null;
+          preview.style.display = "none";
+          renderError("Image is too large. Please use a photo under 12MB.");
+          return;
+        }
         selectedFile = file;
         preview.src = URL.createObjectURL(file);
         preview.style.display = "block";
@@ -317,7 +339,8 @@ siteRouter.get("/scanner", (_req, res) => {
           });
 
           if (!scanRes.ok) {
-            throw new Error("Scanner API returned " + scanRes.status);
+            const payload = await scanRes.json().catch(() => ({}));
+            throw new Error(mapScannerError(payload, scanRes.status));
           }
 
           const scan = await scanRes.json();

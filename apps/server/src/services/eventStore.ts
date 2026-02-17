@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { env } from "../config/env.js";
-import type { ApplicationStatus, ComplianceApplicationDoc, ComplianceEvent } from "../types/compliance.js";
+import type { ApplicationStatus, ComplianceApplicationDoc, ComplianceEvent, CrdtOperation } from "../types/compliance.js";
 
 export class EventStore {
   private readonly pool: Pool;
@@ -124,6 +124,74 @@ export class EventStore {
       eventId: row.event_id,
       applicationId: row.application_id,
       eventType: row.event_type,
+      payload: row.payload,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async appendCrdtOps(applicationId: string, ops: CrdtOperation[]): Promise<void> {
+    if (ops.length === 0) return;
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      for (const op of ops) {
+        await client.query(
+          `
+          INSERT INTO application_crdt_ops (
+            op_id,
+            application_id,
+            actor_id,
+            sequence,
+            payload,
+            created_at
+          )
+          VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6::timestamptz)
+          ON CONFLICT (application_id, actor_id, sequence) DO NOTHING
+          `,
+          [op.opId, applicationId, op.actorId, op.sequence, JSON.stringify(op.payload), op.createdAt]
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listCrdtOps(applicationId: string, afterSequence: number): Promise<CrdtOperation[]> {
+    const { rows } = await this.pool.query<{
+      op_id: string;
+      application_id: string;
+      actor_id: string;
+      sequence: string;
+      payload: Record<string, unknown>;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        op_id,
+        application_id,
+        actor_id,
+        sequence,
+        payload,
+        created_at
+      FROM application_crdt_ops
+      WHERE application_id = $1::uuid
+        AND sequence > $2
+      ORDER BY sequence ASC
+      LIMIT 1000
+      `,
+      [applicationId, afterSequence]
+    );
+
+    return rows.map((row) => ({
+      opId: row.op_id,
+      applicationId: row.application_id,
+      actorId: row.actor_id,
+      sequence: Number(row.sequence),
       payload: row.payload,
       createdAt: row.created_at.toISOString()
     }));

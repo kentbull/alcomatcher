@@ -27,6 +27,19 @@ const syncSchema = z.object({
   })
 });
 
+const appendCrdtOpsSchema = z.object({
+  actorId: z.string().min(1),
+  ops: z
+    .array(
+      z.object({
+        sequence: z.number().int().nonnegative(),
+        payload: z.record(z.unknown())
+      })
+    )
+    .min(1)
+    .max(500)
+});
+
 export const applicationRouter = Router();
 
 applicationRouter.post("/api/applications", async (req, res) => {
@@ -45,6 +58,30 @@ applicationRouter.post("/api/applications/:applicationId/sync", async (req, res)
   if (!merged) return res.status(404).json({ error: "application_not_found" });
 
   return res.json(merged);
+});
+
+applicationRouter.post("/api/applications/:applicationId/crdt-ops", async (req, res) => {
+  const parsed = appendCrdtOpsSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const appended = await complianceService.appendCrdtOps(req.params.applicationId, parsed.data.actorId, parsed.data.ops);
+  if (!appended) return res.status(404).json({ error: "application_not_found" });
+
+  return res.status(202).json({ appendedCount: appended.length, ops: appended });
+});
+
+applicationRouter.get("/api/applications/:applicationId/crdt-ops", async (req, res) => {
+  const afterSequenceRaw = typeof req.query.afterSequence === "string" ? Number(req.query.afterSequence) : 0;
+  const afterSequence = Number.isFinite(afterSequenceRaw) && afterSequenceRaw >= 0 ? afterSequenceRaw : 0;
+
+  const ops = await complianceService.listCrdtOps(req.params.applicationId, afterSequence);
+  if (!ops) return res.status(404).json({ error: "application_not_found" });
+
+  return res.json({
+    applicationId: req.params.applicationId,
+    afterSequence,
+    ops
+  });
 });
 
 applicationRouter.get("/api/applications", async (_req, res) => {

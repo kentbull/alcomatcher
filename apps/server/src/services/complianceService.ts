@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ComplianceApplicationDoc, ComplianceEvent, RegulatoryProfile } from "../types/compliance.js";
+import type { ComplianceApplicationDoc, ComplianceEvent, CrdtOperation, RegulatoryProfile } from "../types/compliance.js";
 import type { ScannerQuickCheckResult } from "../types/scanner.js";
 import type { ExpectedLabelFields } from "../types/scanner.js";
 import { eventStore } from "./eventStore.js";
@@ -28,6 +28,7 @@ interface ScannerQuickCheckEventPayload {
 export class ComplianceService {
   private readonly docs = new Map<string, ComplianceApplicationDoc>();
   private readonly events = new Map<string, ComplianceEvent[]>();
+  private readonly crdtOps = new Map<string, CrdtOperation[]>();
 
   async createApplication(regulatoryProfile: RegulatoryProfile, submissionType: "single" | "batch") {
     const applicationId = randomUUID();
@@ -172,6 +173,57 @@ export class ComplianceService {
       eventCount: events.length,
       lastEventAt: events.length > 0 ? events[events.length - 1].createdAt : undefined
     };
+  }
+
+  async appendCrdtOps(applicationId: string, actorId: string, ops: Array<{ sequence: number; payload: Record<string, unknown> }>) {
+    if (!this.docs.has(applicationId)) return null;
+
+    const stampedOps: CrdtOperation[] = ops.map((op) => ({
+      opId: randomUUID(),
+      applicationId,
+      actorId,
+      sequence: op.sequence,
+      payload: op.payload,
+      createdAt: new Date().toISOString()
+    }));
+
+    const existing = this.crdtOps.get(applicationId) ?? [];
+    existing.push(...stampedOps);
+    existing.sort((a, b) => a.sequence - b.sequence);
+    this.crdtOps.set(applicationId, existing);
+
+    try {
+      await eventStore.appendCrdtOps(applicationId, stampedOps);
+    } catch {
+      // Keep local state even if persistence is temporarily unavailable.
+    }
+
+    await this.appendEvent(applicationId, "SyncMerged", {
+      opCount: stampedOps.length,
+      actorId
+    });
+
+    return stampedOps;
+  }
+
+  async listCrdtOps(applicationId: string, afterSequence = 0) {
+    if (!this.docs.has(applicationId)) return null;
+
+    try {
+      const persisted = await eventStore.listCrdtOps(applicationId, afterSequence);
+      if (persisted.length > 0) {
+        const local = this.crdtOps.get(applicationId) ?? [];
+        const knownOpIds = new Set(local.map((op) => op.opId));
+        const merged = [...local, ...persisted.filter((op) => !knownOpIds.has(op.opId))];
+        merged.sort((a, b) => a.sequence - b.sequence);
+        this.crdtOps.set(applicationId, merged);
+      }
+    } catch {
+      // Fall back to in-memory state.
+    }
+
+    const current = this.crdtOps.get(applicationId) ?? [];
+    return current.filter((op) => op.sequence > afterSequence);
   }
 
   private async appendEvent(applicationId: string, eventType: ComplianceEvent["eventType"], payload: Record<string, unknown>) {

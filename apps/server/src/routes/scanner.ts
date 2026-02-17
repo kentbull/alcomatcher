@@ -22,10 +22,17 @@ const scannerService = new ScannerService();
 
 export const scannerRouter = Router();
 
+function requestIdFromRequest(req: { headers: Record<string, unknown> }) {
+  const value = req.headers["x-request-id"];
+  return typeof value === "string" ? value : "unknown_request";
+}
+
 scannerRouter.post("/api/scanner/quick-check", upload.single("photo"), async (req, res) => {
+  const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
+
   try {
     if (!req.file) {
-      return res.status(400).json({ error: "photo_required" });
+      return res.status(400).json({ error: "photo_required", request_id: requestId });
     }
 
     const expected: ExpectedLabelFields = {
@@ -51,25 +58,29 @@ scannerRouter.post("/api/scanner/quick-check", upload.single("photo"), async (re
       syncState: "pending_sync"
     });
 
-    return res.json({ applicationId, ...result });
+    return res.json({ applicationId, ...result, request_id: requestId });
   } catch (error) {
     if (error instanceof multer.MulterError) {
+      const errorCode = error.code === "LIMIT_FILE_SIZE" ? "photo_too_large" : "upload_failed";
       return res.status(400).json({
-        error: "upload_failed",
-        detail: error.code
+        error: errorCode,
+        detail: errorCode === "photo_too_large" ? "Image exceeds 12MB upload limit" : error.code,
+        request_id: requestId
       });
     }
 
     if (error instanceof Error && error.message === "invalid_file_type") {
       return res.status(400).json({
         error: "invalid_file_type",
-        detail: "Only image uploads are supported"
+        detail: "Only image uploads are supported",
+        request_id: requestId
       });
     }
 
     return res.status(500).json({
       error: "scanner_quick_check_failed",
-      detail: error instanceof Error ? error.message : "unknown_error"
+      detail: error instanceof Error ? error.message : "unknown_error",
+      request_id: requestId
     });
   }
 });
