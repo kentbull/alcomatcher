@@ -110,6 +110,29 @@ function base64ToFile(base64Payload: string, fileName: string, mimeType = "image
   return new File([blob], fileName, { type: mimeType });
 }
 
+async function fetchWithRetry(input: string, init: RequestInit, retries = 1, retryDelayMs = 420) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retries) break;
+      await new Promise((resolve) => window.setTimeout(resolve, retryDelayMs));
+    }
+  }
+  throw lastError;
+}
+
+function formatNetworkError(error: unknown, operation: string) {
+  const message = error instanceof Error ? error.message : String(error ?? "unknown_error");
+  const lowered = message.toLowerCase();
+  if (lowered.includes("load failed") || lowered.includes("network") || lowered.includes("failed to fetch")) {
+    return `${operation} failed: unable to reach alcomatcher.com. Check network connectivity and retry.`;
+  }
+  return `${operation} failed: ${message}`;
+}
+
 function App() {
   const [images, setImages] = useState<LocalImage[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
@@ -195,7 +218,7 @@ function App() {
     setSessionLoading(true);
     setError("");
     try {
-      const response = await fetch(`${apiBase}/api/scanner/sessions`, { method: "POST" });
+      const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions`, { method: "POST" }, 1);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error("Server is on an older API version. /api/scanner/sessions is not deployed yet.");
@@ -210,7 +233,7 @@ function App() {
         applicationId: String(payload.applicationId ?? "")
       };
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create scan session");
+      setError(formatNetworkError(err, "Create session"));
       return null;
     } finally {
       setSessionLoading(false);
@@ -349,10 +372,10 @@ function App() {
         formData.append("image", compressed);
         formData.append("role", role);
         formData.append("index", String(nextIndex));
-        const response = await fetch(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`, {
+        const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`, {
           method: "POST",
           body: formData
-        });
+        }, 1);
         const payload = await response.json();
         if (!response.ok) {
           throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
@@ -366,7 +389,7 @@ function App() {
       } catch (err) {
         updateImageState(localId, {
           uploadState: "failed",
-          uploadError: err instanceof Error ? err.message : "Upload failed"
+          uploadError: formatNetworkError(err, "Image upload")
         });
       }
     },
@@ -435,7 +458,7 @@ function App() {
     setFinalizing(true);
     setError("");
     try {
-      const response = await fetch(`${apiBase}/api/scanner/sessions/${sessionId}/finalize`, {
+      const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${sessionId}/finalize`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -444,7 +467,7 @@ function App() {
         body: JSON.stringify({
           requireGovWarning: true
         })
-      });
+      }, 1);
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
@@ -453,7 +476,7 @@ function App() {
       setResult(payload as FinalizeResult);
       setReportVisible(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Finalize failed");
+      setError(formatNetworkError(err, "Send/Finalize"));
     } finally {
       setFinalizing(false);
     }
