@@ -17,11 +17,12 @@ body {
 }
 
 .scanner-content {
-  --background:
-    radial-gradient(55vh 38vh at 50% -8%, rgba(255, 231, 190, 0.35), transparent 68%),
-    linear-gradient(180deg, rgba(37, 22, 16, 0.26), rgba(37, 22, 16, 0.06) 35%, rgba(43, 27, 18, 0.44) 100%),
-    linear-gradient(145deg, #745235 0%, #5d3d2a 30%, #433022 58%, #2e2118 100%);
-  background: var(--background);
+  --background: transparent;
+  background: transparent;
+}
+
+.scanner-content::part(background) {
+  background: transparent;
 }
 
 ion-page,
@@ -33,11 +34,28 @@ ion-app {
   max-width: 860px;
   margin: 0 auto;
   height: 100%;
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr auto auto;
   gap: 0.48rem;
   overflow: hidden;
   padding: calc(env(safe-area-inset-top, 0px) + 0.58rem) 1rem calc(env(safe-area-inset-bottom, 0px) + 0.84rem);
+}
+
+.scanner-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(55vh 38vh at 50% -8%, rgba(255, 231, 190, 0.22), transparent 68%),
+    linear-gradient(180deg, rgba(37, 22, 16, 0.18), rgba(37, 22, 16, 0.04) 35%, rgba(43, 27, 18, 0.3) 100%);
+}
+
+.scanner-shell > * {
+  position: relative;
+  z-index: 1;
 }
 
 .preview-warning {
