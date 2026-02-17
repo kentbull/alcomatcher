@@ -53,6 +53,8 @@ interface ScannerQuickCheckEventPayload {
   provider: ScannerQuickCheckResult["provider"];
   usedFallback: boolean;
   extracted: ScannerQuickCheckResult["extracted"];
+  composite?: ScannerQuickCheckResult["composite"];
+  images?: ScannerQuickCheckResult["images"];
   checks: ScannerQuickCheckResult["checks"];
 }
 
@@ -145,6 +147,8 @@ export class ComplianceService {
       usedFallback: result.usedFallback,
       expected: expected ?? null,
       extracted: result.extracted,
+      composite: result.composite,
+      images: result.images,
       checks: result.checks
     });
 
@@ -207,6 +211,11 @@ export class ComplianceService {
         ? {
             summary: latestQuickCheckPayload.summary,
             extracted: latestQuickCheckPayload.extracted,
+            composite: latestQuickCheckPayload.composite ?? {
+              extracted: latestQuickCheckPayload.extracted,
+              checks: latestQuickCheckPayload.checks
+            },
+            images: latestQuickCheckPayload.images ?? [],
             checks: latestQuickCheckPayload.checks,
             confidence: latestQuickCheckPayload.confidence,
             processingMs: latestQuickCheckPayload.processingMs,

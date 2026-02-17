@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export type RealtimeEventType = "sync.ack" | "application.status_changed" | "batch.progress";
+export type RealtimeEventType = "sync.ack" | "application.status_changed" | "batch.progress" | "scan.progress";
 
 export interface RealtimeEventEnvelope {
   eventId: string;

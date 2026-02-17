@@ -21,12 +21,70 @@
   display: none;
 }
 
+.image-grid {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.image-tile {
+  position: relative;
+  border-radius: 12px;
+  padding: 4px;
+  border: 3px solid rgba(90, 90, 90, 0.35);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.image-tile--uploading,
+.image-tile--processing {
+  border-color: #e9a823;
+}
+
+.image-tile--ready {
+  border-color: #2e9a4d;
+}
+
+.image-tile--failed {
+  border-color: #c63b2d;
+}
+
 .preview {
   display: block;
   width: 100%;
   border-radius: 12px;
-  margin-top: 0.75rem;
+  margin-top: 0;
   border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.image-badge {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.retry-banner {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 32px;
+  border: none;
+  border-radius: 8px;
+  min-height: 34px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(153, 23, 23, 0.92);
+}
+
+.upload-list {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.upload-line {
+  font-size: 0.9rem;
 }
 
 .result-panel {

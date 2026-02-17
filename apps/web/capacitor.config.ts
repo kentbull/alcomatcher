@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.alcomatcher.app",
+  appId: "com.alcomatcher.scan",
   appName: "AlcoMatcher",
   webDir: "dist",
   server: {

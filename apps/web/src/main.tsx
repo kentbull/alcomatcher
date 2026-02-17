@@ -11,6 +11,7 @@ import {
   IonItem,
   IonLabel,
   IonList,
+  IonLoading,
   IonPage,
   IonText,
   IonTitle,
@@ -24,6 +25,9 @@ import "./styles.css";
 
 setupIonicReact();
 
+type Role = "front" | "back" | "additional";
+type UploadState = "queued" | "uploading" | "processing" | "ready" | "failed";
+
 interface ScannerCheck {
   id: string;
   label: string;
@@ -31,7 +35,7 @@ interface ScannerCheck {
   detail: string;
 }
 
-interface ScannerResponse {
+interface FinalizeResult {
   applicationId: string;
   summary: "pass" | "fail" | "needs_review";
   extracted: {
@@ -41,319 +45,313 @@ interface ScannerResponse {
     abvText?: string;
     netContents?: string;
     hasGovWarning: boolean;
+    fieldSources?: Record<string, { role: string; index: number; confidence: number }>;
   };
   checks: ScannerCheck[];
   confidence: number;
   provider: string;
   usedFallback: boolean;
+  processingMs?: number;
   request_id?: string;
 }
 
-interface ScannerErrorPayload {
-  error?: string;
-  detail?: string;
-  request_id?: string;
+interface LocalImage {
+  localId: string;
+  role: Role;
+  index: number;
+  file: File;
+  previewUrl: string;
+  uploadState: UploadState;
+  uploadError?: string;
+  retryCount: number;
+  imageId?: string;
 }
 
-interface QueuedCrdtOp {
-  applicationId: string;
-  actorId: string;
-  sequence: number;
-  payload: Record<string, unknown>;
-}
-
-interface RealtimeEvent {
-  eventId: string;
-  type: "sync.ack" | "application.status_changed" | "batch.progress";
+interface ScanProgressEvent {
+  type: "scan.progress";
   applicationId?: string;
-  batchId?: string;
   data?: {
-    syncState?: "pending_sync" | "synced" | "sync_failed";
-    [key: string]: unknown;
+    sessionId?: string;
+    imageId?: string;
+    role?: Role;
+    index?: number;
+    stage?: string;
+    status?: "in_progress" | "completed" | "failed";
+    uploadState?: UploadState;
+    errorCode?: string;
+    errorMessage?: string;
   };
 }
 
-const CRDT_QUEUE_KEY = "alcomatcher_crdt_queue_v1";
-const CRDT_ACTOR_KEY = "alcomatcher_crdt_actor_v1";
-const CRDT_SEQUENCE_PREFIX = "alcomatcher_crdt_seq_";
-
-function base64ToBlob(base64Data: string, mimeType = "image/jpeg") {
-  const byteString = atob(base64Data);
-  const byteArray = new Uint8Array(byteString.length);
-  for (let i = 0; i < byteString.length; i += 1) {
-    byteArray[i] = byteString.charCodeAt(i);
-  }
-  return new Blob([byteArray], { type: mimeType });
-}
+const STATUS_LABEL: Record<UploadState, string> = {
+  queued: "Queued",
+  uploading: "Uploading...",
+  processing: "Processing...",
+  ready: "Ready",
+  failed: "Failed"
+};
 
 function App() {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [checking, setChecking] = useState(false);
-  const [result, setResult] = useState<ScannerResponse | null>(null);
-  const [error, setError] = useState<string>("");
-  const [serverSyncState, setServerSyncState] = useState<"unknown" | "pending_sync" | "synced" | "sync_failed">("unknown");
-
+  const [images, setImages] = useState<LocalImage[]>([]);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [applicationId, setApplicationId] = useState<string>("");
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<FinalizeResult | null>(null);
   const [expectedBrandName, setExpectedBrandName] = useState("");
   const [expectedClassType, setExpectedClassType] = useState("");
   const [expectedAbvText, setExpectedAbvText] = useState("");
   const [expectedNetContents, setExpectedNetContents] = useState("");
-  const [syncPendingCount, setSyncPendingCount] = useState(0);
-  const [syncState, setSyncState] = useState<"idle" | "syncing" | "offline" | "retrying" | "failed">("idle");
-  const syncRetryTimeoutRef = useRef<number | null>(null);
-  const syncRetryAttemptRef = useRef(0);
+  const frontInputRef = useRef<HTMLInputElement | null>(null);
+  const backInputRef = useRef<HTMLInputElement | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
 
   const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
-  const statusClass = result ? `status-${result.summary}` : "";
+  const frontReady = images.some((image) => image.role === "front" && image.uploadState === "ready");
+  const backReady = images.some((image) => image.role === "back" && image.uploadState === "ready");
+  const canFinalize = frontReady && backReady && !finalizing;
+  const loadingMessage = sessionLoading
+    ? "Starting scan session..."
+    : finalizing
+      ? "Finalizing composite compliance check..."
+      : "";
 
-  const getStoredQueue = useCallback((): QueuedCrdtOp[] => {
-    const raw = localStorage.getItem(CRDT_QUEUE_KEY);
-    if (!raw) return [];
+  const compressImage = useCallback(async (file: File): Promise<File> => {
+    if (!file.type.startsWith("image/")) return file;
+    const imageBitmap = await createImageBitmap(file).catch(() => null);
+    if (!imageBitmap) return file;
+
+    const maxSide = 2200;
+    const scale = Math.min(1, maxSide / Math.max(imageBitmap.width, imageBitmap.height));
+    const width = Math.max(1, Math.round(imageBitmap.width * scale));
+    const height = Math.max(1, Math.round(imageBitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return file;
+
+    context.drawImage(imageBitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob((nextBlob) => resolve(nextBlob), "image/jpeg", 0.78);
+    });
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+  }, []);
+
+  const createSession = useCallback(async (): Promise<{ sessionId: string; applicationId: string } | null> => {
+    setSessionLoading(true);
+    setError("");
     try {
-      const parsed = JSON.parse(raw) as QueuedCrdtOp[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, []);
-
-  const persistQueue = useCallback((queue: QueuedCrdtOp[]) => {
-    localStorage.setItem(CRDT_QUEUE_KEY, JSON.stringify(queue));
-    setSyncPendingCount(queue.length);
-  }, []);
-
-  const getActorId = useCallback(() => {
-    const existing = localStorage.getItem(CRDT_ACTOR_KEY);
-    if (existing) return existing;
-    const actorId = `actor-${crypto.randomUUID()}`;
-    localStorage.setItem(CRDT_ACTOR_KEY, actorId);
-    return actorId;
-  }, []);
-
-  const nextSequenceForApplication = useCallback((applicationId: string) => {
-    const key = `${CRDT_SEQUENCE_PREFIX}${applicationId}`;
-    const current = Number(localStorage.getItem(key) ?? "0");
-    const next = Number.isFinite(current) && current >= 0 ? current + 1 : 1;
-    localStorage.setItem(key, String(next));
-    return next;
-  }, []);
-
-  const flushCrdtQueue = useCallback(async () => {
-    const queue = getStoredQueue();
-    if (queue.length === 0) {
-      setSyncState("idle");
-      syncRetryAttemptRef.current = 0;
-      return;
-    }
-
-    if (!navigator.onLine) {
-      setSyncState("offline");
-      return;
-    }
-
-    setSyncState("syncing");
-    const grouped = new Map<string, QueuedCrdtOp[]>();
-    for (const op of queue) {
-      const group = grouped.get(op.applicationId) ?? [];
-      group.push(op);
-      grouped.set(op.applicationId, group);
-    }
-
-    const failures = new Set<string>();
-    for (const [applicationId, ops] of grouped.entries()) {
-      const actorId = ops[0]?.actorId ?? getActorId();
-      const payloadOps = ops.map((op) => ({ sequence: op.sequence, payload: op.payload }));
-      try {
-        const response = await fetch(`${apiBase}/api/applications/${applicationId}/crdt-ops`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ actorId, ops: payloadOps })
-        });
-        if (!response.ok) {
-          failures.add(applicationId);
-          setServerSyncState("sync_failed");
+      const response = await fetch(`${apiBase}/api/scanner/sessions`, { method: "POST" });
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("Server is on an older API version. /api/scanner/sessions is not deployed yet.");
         }
-      } catch {
-        failures.add(applicationId);
-        setServerSyncState("sync_failed");
+        throw new Error(`Session creation failed (HTTP ${response.status}).`);
       }
-    }
-
-    if (failures.size === 0) {
-      persistQueue([]);
-      setSyncState("idle");
-      syncRetryAttemptRef.current = 0;
-      return;
-    }
-
-    const remaining = queue.filter((op) => failures.has(op.applicationId));
-    persistQueue(remaining);
-    setSyncState("failed");
-    if (syncRetryTimeoutRef.current === null) {
-      syncRetryAttemptRef.current += 1;
-      const delayMs = Math.min(1000 * 2 ** syncRetryAttemptRef.current, 30000);
-      setSyncState("retrying");
-      syncRetryTimeoutRef.current = window.setTimeout(() => {
-        syncRetryTimeoutRef.current = null;
-        void flushCrdtQueue();
-      }, delayMs);
-    }
-  }, [apiBase, getActorId, getStoredQueue, persistQueue]);
-
-  const enqueueCrdtSync = useCallback(
-    (scan: ScannerResponse) => {
-      const actorId = getActorId();
-      const sequence = nextSequenceForApplication(scan.applicationId);
-      const op: QueuedCrdtOp = {
-        applicationId: scan.applicationId,
-        actorId,
-        sequence,
-        payload: {
-          opType: "quick_check_recorded",
-          summary: scan.summary,
-          confidence: scan.confidence,
-          provider: scan.provider,
-          usedFallback: scan.usedFallback,
-          createdAt: new Date().toISOString()
-        }
+      const payload = await response.json();
+      setSessionId(payload.sessionId);
+      setApplicationId(payload.applicationId);
+      return {
+        sessionId: String(payload.sessionId ?? ""),
+        applicationId: String(payload.applicationId ?? "")
       };
-      const queue = getStoredQueue();
-      queue.push(op);
-      persistQueue(queue);
-      setServerSyncState("pending_sync");
-      void flushCrdtQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create scan session");
+      return null;
+    } finally {
+      setSessionLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void createSession();
+  }, [createSession]);
+
+  const updateImageState = useCallback((localId: string, patch: Partial<LocalImage>) => {
+    setImages((current) => current.map((image) => (image.localId === localId ? { ...image, ...patch } : image)));
+  }, []);
+
+  const addImage = useCallback(
+    async (file: File, role: Role, existingLocalId?: string, existingIndex?: number) => {
+      const compressed = await compressImage(file);
+      const additionalIndex = images.filter((entry) => entry.role === "additional").length;
+      const nextIndex = role === "additional" ? existingIndex ?? additionalIndex : 0;
+      const localId = existingLocalId ?? crypto.randomUUID();
+      const previewUrl = existingLocalId ? "" : URL.createObjectURL(compressed);
+
+      if (!existingLocalId) {
+        setImages((current) => [
+          ...current.filter((entry) => {
+            const shouldKeep = !(entry.role === role && role !== "additional");
+            if (!shouldKeep) URL.revokeObjectURL(entry.previewUrl);
+            return shouldKeep;
+          }),
+          {
+            localId,
+            role,
+            index: nextIndex,
+            file: compressed,
+            previewUrl,
+            uploadState: "queued",
+            retryCount: 0
+          }
+        ]);
+      }
+      updateImageState(localId, { uploadState: "uploading", uploadError: undefined });
+      setError("");
+
+      try {
+        let resolvedSessionId = sessionId;
+        if (!resolvedSessionId) {
+          const created = await createSession();
+          resolvedSessionId = created?.sessionId ?? "";
+        }
+        if (!resolvedSessionId) {
+          throw new Error("Unable to start scan session. Check network and retry.");
+        }
+        const formData = new FormData();
+        formData.append("image", compressed);
+        formData.append("role", role);
+        formData.append("index", String(nextIndex));
+        const response = await fetch(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`, {
+          method: "POST",
+          body: formData
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
+        }
+        updateImageState(localId, {
+          uploadState: payload.image?.uploadState ?? "ready",
+          uploadError: undefined,
+          retryCount: payload.image?.retryCount ?? 0,
+          imageId: payload.image?.imageId
+        });
+      } catch (err) {
+        updateImageState(localId, {
+          uploadState: "failed",
+          uploadError: err instanceof Error ? err.message : "Upload failed"
+        });
+      }
     },
-    [flushCrdtQueue, getActorId, getStoredQueue, nextSequenceForApplication, persistQueue]
+    [apiBase, compressImage, createSession, images, sessionId, updateImageState]
   );
 
-  const mapScannerError = (payload: ScannerErrorPayload, statusCode: number) => {
-    if (payload.error === "photo_too_large" || statusCode === 413) return "Image is too large. Please use a photo under 12MB.";
-    if (payload.error === "photo_required") return "Select or capture a label image first.";
-    if (payload.detail) return payload.request_id ? `${payload.detail} (ref: ${payload.request_id})` : payload.detail;
-    if (payload.error) return payload.request_id ? `${payload.error} (ref: ${payload.request_id})` : payload.error;
-    return `HTTP_${statusCode}`;
-  };
+  const retryUpload = useCallback(
+    async (localId: string) => {
+      const image = images.find((entry) => entry.localId === localId);
+      if (!image) return;
+      updateImageState(localId, { retryCount: image.retryCount + 1 });
+      await addImage(image.file, image.role, localId, image.index);
+    },
+    [addImage, images, updateImageState]
+  );
 
-  const handleFileSelected = (file: File | null) => {
-    if (!file) return;
-    if (file.size > 12 * 1024 * 1024) {
-      setError("Image is too large. Please use a photo under 12MB.");
-      setSelectedFile(null);
-      setPreviewUrl("");
-      setResult(null);
+  const capturePhoto = useCallback(
+    async (role: Role) => {
+      try {
+        const photo = await Camera.getPhoto({
+          quality: 80,
+          resultType: CameraResultType.Base64,
+          source: CameraSource.Camera
+        });
+        if (!photo.base64String) return;
+        const binary = atob(photo.base64String);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: photo.format ? `image/${photo.format}` : "image/jpeg" });
+        const file = new File([blob], `${role}-${Date.now()}.jpg`, { type: blob.type });
+        await addImage(file, role);
+      } catch {
+        if (role === "front") frontInputRef.current?.click();
+        if (role === "back") backInputRef.current?.click();
+        if (role === "additional") addInputRef.current?.click();
+      }
+    },
+    [addImage]
+  );
+
+  const finalizeScan = useCallback(async () => {
+    if (!sessionId) return;
+    if (!frontReady || !backReady) {
+      setError("Front and back images must be uploaded and processed first.");
       return;
     }
-    setSelectedFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setResult(null);
-    setError("");
-  };
-
-  const openFilePicker = () => {
-    fileInputRef.current?.click();
-  };
-
-  const capturePhoto = async () => {
-    try {
-      const photo = await Camera.getPhoto({
-        quality: 80,
-        resultType: CameraResultType.Base64,
-        source: CameraSource.Camera
-      });
-      if (!photo.base64String) return;
-
-      const blob = base64ToBlob(photo.base64String, photo.format ? `image/${photo.format}` : "image/jpeg");
-      const file = new File([blob], `scan-${Date.now()}.jpg`, { type: blob.type });
-      handleFileSelected(file);
-    } catch {
-      openFilePicker();
-    }
-  };
-
-  const runQuickCheck = async () => {
-    if (!selectedFile) {
-      setError("Select or capture a label image first.");
-      return;
-    }
-
-    setChecking(true);
+    setFinalizing(true);
     setError("");
     try {
-      const formData = new FormData();
-      formData.append("photo", selectedFile);
-      formData.append("requireGovWarning", "true");
-      if (expectedBrandName.trim()) formData.append("expectedBrandName", expectedBrandName.trim());
-      if (expectedClassType.trim()) formData.append("expectedClassType", expectedClassType.trim());
-      if (expectedAbvText.trim()) formData.append("expectedAbvText", expectedAbvText.trim());
-      if (expectedNetContents.trim()) formData.append("expectedNetContents", expectedNetContents.trim());
-
-      const response = await fetch(`${apiBase}/api/scanner/quick-check`, {
+      const response = await fetch(`${apiBase}/api/scanner/sessions/${sessionId}/finalize`, {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           "x-alcomatcher-client-sync": "crdt"
         },
-        body: formData
+        body: JSON.stringify({
+          expectedBrandName,
+          expectedClassType,
+          expectedAbvText,
+          expectedNetContents,
+          requireGovWarning: true
+        })
       });
+      const payload = await response.json();
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as ScannerErrorPayload;
-        throw new Error(mapScannerError(payload, response.status));
+        throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
       }
-
-      const payload = (await response.json()) as ScannerResponse;
-      setResult(payload);
-      enqueueCrdtSync(payload);
+      setApplicationId(payload.applicationId ?? applicationId);
+      setResult(payload as FinalizeResult);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected scanner error");
+      setError(err instanceof Error ? err.message : "Finalize failed");
     } finally {
-      setChecking(false);
+      setFinalizing(false);
     }
-  };
+  }, [apiBase, applicationId, backReady, expectedAbvText, expectedBrandName, expectedClassType, expectedNetContents, frontReady, sessionId]);
 
   useEffect(() => {
-    setSyncPendingCount(getStoredQueue().length);
-    const onOnline = () => {
-      void flushCrdtQueue();
-    };
-    window.addEventListener("online", onOnline);
-    return () => {
-      window.removeEventListener("online", onOnline);
-      if (syncRetryTimeoutRef.current !== null) {
-        window.clearTimeout(syncRetryTimeoutRef.current);
-      }
-    };
-  }, [flushCrdtQueue, getStoredQueue]);
-
-  useEffect(() => {
-    if (typeof EventSource === "undefined") return;
-
-    const applicationId = result?.applicationId;
-    const streamUrl = applicationId
-      ? `${apiBase}/api/events/stream?scope=mobile&applicationId=${encodeURIComponent(applicationId)}`
-      : `${apiBase}/api/events/stream?scope=mobile`;
-
-    const stream = new EventSource(streamUrl);
-    const handle = (event: MessageEvent) => {
+    if (typeof EventSource === "undefined" || !applicationId) return;
+    const stream = new EventSource(`${apiBase}/api/events/stream?scope=mobile&applicationId=${encodeURIComponent(applicationId)}`);
+    const onProgress = (event: MessageEvent) => {
       try {
-        const payload = JSON.parse(event.data) as RealtimeEvent;
-        if (applicationId && payload.applicationId && payload.applicationId !== applicationId) return;
-        if (payload.data?.syncState) setServerSyncState(payload.data.syncState);
-        if (payload.type === "sync.ack") setSyncState("idle");
+        const payload = JSON.parse(event.data) as ScanProgressEvent;
+        if (payload.type !== "scan.progress") return;
+        const role = payload.data?.role;
+        const index = payload.data?.index ?? 0;
+        if (!role) return;
+        setImages((current) =>
+          current.map((image) => {
+            if (image.role !== role || image.index !== index) return image;
+            if (payload.data?.status === "failed") {
+              return {
+                ...image,
+                uploadState: "failed",
+                uploadError: payload.data?.errorMessage ?? payload.data?.errorCode ?? "Upload failed"
+              };
+            }
+            if (payload.data?.stage === "image_upload_started") return { ...image, uploadState: "uploading" };
+            if (payload.data?.stage === "image_upload_completed") return { ...image, uploadState: "processing" };
+            if (payload.data?.stage === "image_checks_completed") return { ...image, uploadState: "ready" };
+            return image;
+          })
+        );
       } catch {
-        // Ignore malformed payloads.
+        // Ignore malformed SSE payloads.
       }
     };
-
-    stream.addEventListener("sync.ack", handle as EventListener);
-    stream.addEventListener("application.status_changed", handle as EventListener);
-    stream.onerror = () => {
-      setSyncState((current) => (current === "syncing" ? "retrying" : current));
-    };
-
+    stream.addEventListener("scan.progress", onProgress as EventListener);
     return () => {
       stream.close();
     };
-  }, [apiBase, result?.applicationId]);
+  }, [apiBase, applicationId]);
+
+  const sortedImages = [...images].sort((a, b) => {
+    const rank = (role: Role) => (role === "front" ? 0 : role === "back" ? 1 : 2);
+    const roleDiff = rank(a.role) - rank(b.role);
+    if (roleDiff !== 0) return roleDiff;
+    return a.index - b.index;
+  });
 
   return (
     <IonApp>
@@ -367,7 +365,7 @@ function App() {
           <div className="scanner-panel">
             <IonText>
               <h1>Scan Label Now</h1>
-              <p>No login required. Fast compliance checks for field use.</p>
+              <p>Capture front and back photos first. Additional photos are optional for curved/odd labels.</p>
             </IonText>
 
             <IonList inset>
@@ -391,28 +389,87 @@ function App() {
             </IonList>
 
             <input
-              ref={fileInputRef}
+              ref={frontInputRef}
               className="hidden-file"
               type="file"
               accept="image/*"
-              capture="environment"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0] ?? null;
-                handleFileSelected(file);
+              onChange={async (event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) await addImage(file, "front");
+              }}
+            />
+            <input
+              ref={backInputRef}
+              className="hidden-file"
+              type="file"
+              accept="image/*"
+              onChange={async (event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) await addImage(file, "back");
+              }}
+            />
+            <input
+              ref={addInputRef}
+              className="hidden-file"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={async (event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                for (const file of files) {
+                  await addImage(file, "additional");
+                }
               }}
             />
 
-            <IonButton expand="block" size="large" color="primary" onClick={capturePhoto}>
-              Capture Label Photo
+            <IonButton expand="block" size="large" color="primary" onClick={() => void capturePhoto("front")} disabled={sessionLoading}>
+              Capture Front Label
             </IonButton>
-            <IonButton expand="block" size="large" fill="outline" onClick={openFilePicker}>
-              Import Label Photo
+            <IonButton expand="block" size="large" color="primary" fill="outline" onClick={() => void capturePhoto("back")} disabled={sessionLoading}>
+              Capture Back Label
             </IonButton>
-            <IonButton expand="block" size="large" color="tertiary" onClick={runQuickCheck} disabled={checking}>
-              {checking ? "Checking..." : "Run Quick Check"}
+            <IonButton
+              expand="block"
+              size="large"
+              color="secondary"
+              fill="outline"
+              onClick={() => void capturePhoto("additional")}
+              disabled={sessionLoading || images.length >= 6}
+            >
+              Add Additional Photo
+            </IonButton>
+            <IonButton expand="block" size="large" color="tertiary" disabled={!canFinalize} onClick={() => void finalizeScan()}>
+              {finalizing ? "Finalizing..." : "Run Quick Check"}
             </IonButton>
 
-            {previewUrl ? <img className="preview" src={previewUrl} alt="Label preview" /> : null}
+            <div className="image-grid">
+              {sortedImages.map((image) => (
+                <div key={image.localId} className={`image-tile image-tile--${image.uploadState}`}>
+                  <img className="preview" src={image.previewUrl} alt={`${image.role} preview`} />
+                  <div className="image-badge">
+                    {image.role.toUpperCase()}
+                    {image.role === "additional" ? ` #${image.index + 1}` : ""}
+                    {" · "}
+                    {STATUS_LABEL[image.uploadState]}
+                  </div>
+                  {image.uploadState === "failed" ? (
+                    <button className="retry-banner" type="button" onClick={() => void retryUpload(image.localId)}>
+                      Upload failed. Tap to retry.
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <div className="upload-list">
+              {sortedImages.map((image) => (
+                <div key={`${image.localId}-line`} className="upload-line">
+                  <strong>{image.role}</strong>
+                  {image.role === "additional" ? ` #${image.index + 1}` : ""}: {STATUS_LABEL[image.uploadState]}
+                  {image.uploadError ? ` (${image.uploadError})` : ""}
+                </div>
+              ))}
+            </div>
 
             {error ? (
               <div className="result-panel result-error">
@@ -421,7 +478,7 @@ function App() {
             ) : null}
 
             {result ? (
-              <div className={`result-panel ${statusClass}`}>
+              <div className={`result-panel status-${result.summary}`}>
                 <div>
                   <strong>Summary:</strong> {result.summary.toUpperCase()}
                 </div>
@@ -432,15 +489,15 @@ function App() {
                   <strong>Confidence:</strong> {Math.round(result.confidence * 100)}%
                 </div>
                 <div>
-                  <strong>Provider:</strong> {result.provider} {result.usedFallback ? "(fallback)" : ""}
+                  <strong>Composite Time:</strong> {Math.round(result.processingMs ?? 0)} ms
                 </div>
-                <div className="section-title">Detected Fields</div>
+                <div className="section-title">Composite Detected Fields</div>
                 <div>Brand: {result.extracted.brandName ?? "not detected"}</div>
                 <div>Class/Type: {result.extracted.classType ?? "not detected"}</div>
                 <div>ABV: {result.extracted.abvText ?? "not detected"}</div>
                 <div>Net Contents: {result.extracted.netContents ?? "not detected"}</div>
                 <div>Gov Warning: {result.extracted.hasGovWarning ? "detected" : "not detected"}</div>
-                <div className="section-title">Checks</div>
+                <div className="section-title">Composite Checks</div>
                 <ul>
                   {result.checks.map((check) => (
                     <li key={check.id}>
@@ -453,26 +510,22 @@ function App() {
 
             <IonList inset>
               <IonItem>
-                <IonLabel>Result Time Target: {"<= 5s"}</IonLabel>
+                <IonLabel>Session: {sessionId || "starting..."}</IonLabel>
               </IonItem>
               <IonItem>
-                <IonLabel>Mode: Hybrid (Offline First)</IonLabel>
+                <IonLabel>Application: {applicationId || "pending"}</IonLabel>
               </IonItem>
               <IonItem>
-                <IonLabel>Sync Queue: CRDT document sync after quick check</IonLabel>
+                <IonLabel>Front Ready: {frontReady ? "yes" : "no"}</IonLabel>
               </IonItem>
               <IonItem>
-                <IonLabel>
-                  Transport Sync: {syncState} {syncPendingCount > 0 ? `(${syncPendingCount} pending)` : "(0 pending)"}
-                </IonLabel>
-              </IonItem>
-              <IonItem>
-                <IonLabel>Server Sync: {serverSyncState}</IonLabel>
+                <IonLabel>Back Ready: {backReady ? "yes" : "no"}</IonLabel>
               </IonItem>
             </IonList>
           </div>
         </IonContent>
       </IonPage>
+      <IonLoading isOpen={sessionLoading || finalizing} message={loadingMessage} />
     </IonApp>
   );
 }

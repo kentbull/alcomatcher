@@ -160,7 +160,9 @@ siteRouter.get("/scanner", (_req, res) => {
         --card: #fffaf2;
         --ink: #2f1d12;
         --accent: #c65a2b;
-        --ok: #1f7a44;
+        --ready: #2a8e42;
+        --working: #d89f1f;
+        --failed: #b5322b;
       }
       * { box-sizing: border-box; }
       body {
@@ -170,7 +172,7 @@ siteRouter.get("/scanner", (_req, res) => {
         color: var(--ink);
         background: linear-gradient(180deg, #ffe9c2 0%, #f7d79f 35%, #f8ead2 100%);
       }
-      .wrap { max-width: 740px; margin: 0 auto; padding: 20px 16px 32px; }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 20px 16px 32px; }
       .card {
         background: var(--card);
         border: 1px solid rgba(0, 0, 0, 0.1);
@@ -178,10 +180,10 @@ siteRouter.get("/scanner", (_req, res) => {
         padding: 16px;
       }
       h1 { margin: 0 0 8px; }
-      p { margin: 0 0 14px; }
       .stack { display: grid; gap: 12px; }
-      input[type="file"] { width: 100%; }
-      input[type="text"] {
+      .grid { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+      .row { display: grid; gap: 8px; }
+      input[type="text"], input[type="file"] {
         width: 100%;
         min-height: 44px;
         border-radius: 10px;
@@ -191,7 +193,7 @@ siteRouter.get("/scanner", (_req, res) => {
       }
       button {
         width: 100%;
-        min-height: 50px;
+        min-height: 48px;
         border: none;
         border-radius: 12px;
         font-size: 1rem;
@@ -199,66 +201,123 @@ siteRouter.get("/scanner", (_req, res) => {
         color: white;
         background: var(--accent);
       }
-      #preview { max-width: 100%; border-radius: 12px; display: none; }
+      button:disabled { opacity: 0.65; }
+      .thumbs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+      .thumb {
+        border-radius: 10px;
+        padding: 3px;
+        border: 3px solid rgba(0,0,0,0.2);
+        background: #fff;
+      }
+      .thumb.uploading, .thumb.processing { border-color: var(--working); }
+      .thumb.ready { border-color: var(--ready); }
+      .thumb.failed { border-color: var(--failed); }
+      .thumb img { width: 100%; border-radius: 8px; display: block; }
+      .thumb .meta { margin-top: 4px; font-size: 0.78rem; font-weight: 700; }
+      #uploadList { margin: 0; padding-left: 16px; font-size: 0.92rem; }
       #result {
         display: none;
         margin-top: 10px;
         padding: 12px;
         border-radius: 12px;
-        background: #eaf8ee;
-        border: 1px solid rgba(31, 122, 68, 0.25);
+        background: #f8fafc;
+        border: 1px solid rgba(33,33,33,0.18);
       }
-      #result strong { color: var(--ok); }
-      .small { font-size: 0.92rem; opacity: 0.85; }
+      #result ul { margin: 6px 0 0; padding-left: 20px; }
+      .small { font-size: 0.92rem; opacity: 0.86; }
       .nav { margin-top: 12px; }
       .nav a { color: #4e2d1b; text-decoration: none; font-weight: 700; }
+      @media (max-width: 640px) {
+        .grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
     <main class="wrap">
       <section class="card stack">
         <h1>Scanner</h1>
-        <p>Capture a label photo and run a quick compliance check.</p>
-        <input id="expectedBrandName" type="text" placeholder="Expected Brand Name (optional)" />
-        <input id="expectedClassType" type="text" placeholder="Expected Class/Type (optional)" />
-        <input id="expectedAbvText" type="text" placeholder="Expected ABV (e.g. 45% Alc./Vol.) (optional)" />
-        <input id="expectedNetContents" type="text" placeholder="Expected Net Contents (e.g. 750 mL) (optional)" />
-        <input id="photo" type="file" accept="image/*" capture="environment" />
-        <img id="preview" alt="Label preview" />
+        <p>Capture front and back images, then run the quick compliance check.</p>
+
+        <div class="grid">
+          <input id="expectedBrandName" type="text" placeholder="Expected Brand Name (optional)" />
+          <input id="expectedClassType" type="text" placeholder="Expected Class/Type (optional)" />
+        </div>
+        <div class="grid">
+          <input id="expectedAbvText" type="text" placeholder="Expected ABV (optional)" />
+          <input id="expectedNetContents" type="text" placeholder="Expected Net Contents (optional)" />
+        </div>
+
+        <div class="row">
+          <label>Front Label Photo</label>
+          <input id="frontPhoto" type="file" accept="image/*" capture="environment" />
+        </div>
+        <div class="row">
+          <label>Back Label Photo</label>
+          <input id="backPhoto" type="file" accept="image/*" capture="environment" />
+        </div>
+        <div class="row">
+          <label>Additional Photos (optional, up to 4)</label>
+          <input id="additionalPhotos" type="file" accept="image/*" capture="environment" multiple />
+        </div>
+
+        <div class="thumbs" id="thumbs"></div>
+        <ol id="uploadList"></ol>
+
         <button id="runCheck" type="button">Run Quick Check</button>
         <div id="result"></div>
-        <div class="small">This is the first mobile workflow slice. Full OCR/rules engine is next.</div>
+        <div class="small">Front/back are required. Additional photos help with curved or partial labels.</div>
       </section>
       <div class="nav"><a href="/">← Back to Home</a></div>
     </main>
     <script>
-      const photoInput = document.getElementById("photo");
-      const preview = document.getElementById("preview");
       const runBtn = document.getElementById("runCheck");
       const result = document.getElementById("result");
+      const thumbs = document.getElementById("thumbs");
+      const uploadList = document.getElementById("uploadList");
+      const frontInput = document.getElementById("frontPhoto");
+      const backInput = document.getElementById("backPhoto");
+      const additionalInput = document.getElementById("additionalPhotos");
       const expectedBrandNameInput = document.getElementById("expectedBrandName");
       const expectedClassTypeInput = document.getElementById("expectedClassType");
       const expectedAbvTextInput = document.getElementById("expectedAbvText");
       const expectedNetContentsInput = document.getElementById("expectedNetContents");
-      let selectedFile = null;
+
+      const state = {
+        front: null,
+        back: null,
+        additional: []
+      };
+
+      function listFiles() {
+        const files = [];
+        if (state.front) files.push({ role: "front", file: state.front, status: "ready" });
+        if (state.back) files.push({ role: "back", file: state.back, status: "ready" });
+        state.additional.forEach((file, index) => files.push({ role: "additional #" + (index + 1), file, status: "ready" }));
+        return files;
+      }
+
+      function renderPreviews() {
+        const files = listFiles();
+        thumbs.innerHTML = files.map((entry) => {
+          const url = URL.createObjectURL(entry.file);
+          return "<div class='thumb " + entry.status + "'><img src='" + url + "' alt='preview' /><div class='meta'>" + entry.role + " · " + entry.status.toUpperCase() + "</div></div>";
+        }).join("");
+
+        uploadList.innerHTML = files.map((entry) => "<li>" + entry.role + ": " + entry.status.toUpperCase() + "</li>").join("");
+      }
 
       function renderError(message) {
         result.style.display = "block";
         result.style.background = "#fff1ef";
         result.style.borderColor = "rgba(175,45,24,0.25)";
-        result.innerHTML = "<strong>Check failed.</strong> " + message;
+        result.innerHTML = "<strong>Check failed:</strong> " + message;
       }
 
       function mapScannerError(payload, statusCode) {
-        if (payload && payload.error === "photo_too_large") {
-          return "Image is too large. Please choose a photo under 12MB.";
-        }
-        if (statusCode === 413) {
-          return "Image is too large for upload. Please retry with a smaller image.";
-        }
-        if (payload && payload.error === "photo_required") {
-          return "Capture or upload a label first.";
-        }
+        if (payload && payload.error === "photo_too_large") return "One or more images are larger than 12MB.";
+        if (payload && payload.error === "front_photo_required") return "Front label photo is required.";
+        if (payload && payload.error === "back_photo_required") return "Back label photo is required.";
+        if (statusCode === 413) return "Image upload too large. Retry with smaller images.";
         const requestRef = payload && payload.request_id ? " (ref: " + payload.request_id + ")" : "";
         if (payload && payload.detail) return payload.detail + requestRef;
         if (payload && payload.error) return payload.error + requestRef;
@@ -266,81 +325,64 @@ siteRouter.get("/scanner", (_req, res) => {
       }
 
       function renderResult(scan) {
-        const statusColor =
-          scan.summary === "pass"
-            ? "#1f7a44"
-            : scan.summary === "fail"
-              ? "#9b2c20"
-              : "#9a6b12";
-
-        const checksHtml = scan.checks
-          .map((check) => {
-            return (
-              "<li><strong>" + check.label + ":</strong> " +
-              check.status.toUpperCase() + " - " + check.detail + "</li>"
-            );
-          })
-          .join("");
-
+        const statusColor = scan.summary === "pass" ? "#1f7a44" : scan.summary === "fail" ? "#9b2c20" : "#9a6b12";
+        const checksHtml = (scan.checks || []).map((check) => "<li><strong>" + check.label + ":</strong> " + check.status.toUpperCase() + " - " + check.detail + "</li>").join("");
         result.style.display = "block";
         result.style.background = "#f8fafc";
         result.style.borderColor = "rgba(33,33,33,0.18)";
         result.innerHTML =
           "<div><strong style='color:" + statusColor + "'>Summary: " + scan.summary.toUpperCase() + "</strong></div>" +
           "<div>Application ID: " + (scan.applicationId || "n/a") + "</div>" +
-          "<div style='margin-top:6px'>Confidence: " + Math.round((scan.confidence || 0) * 100) + "%</div>" +
-          "<div>Provider: " + scan.provider + (scan.usedFallback ? " (fallback used)" : "") + "</div>" +
-          "<div style='margin-top:8px'><strong>Detected Fields</strong></div>" +
+          "<div>Confidence: " + Math.round((scan.confidence || 0) * 100) + "%</div>" +
+          "<div style='margin-top:8px'><strong>Composite Detected Fields</strong></div>" +
           "<div>Brand: " + (scan.extracted.brandName || "not detected") + "</div>" +
           "<div>Class/Type: " + (scan.extracted.classType || "not detected") + "</div>" +
           "<div>ABV: " + (scan.extracted.abvText || "not detected") + "</div>" +
           "<div>Net Contents: " + (scan.extracted.netContents || "not detected") + "</div>" +
           "<div>Gov Warning: " + (scan.extracted.hasGovWarning ? "detected" : "not detected") + "</div>" +
-          "<div style='margin-top:8px'><strong>Checks</strong></div>" +
-          "<ul style='padding-left:20px; margin:6px 0 0'>" + checksHtml + "</ul>" +
-          "<details style='margin-top:8px'><summary>Raw OCR Text</summary><pre style='white-space:pre-wrap'>" +
-          (scan.extracted.rawText || "").slice(0, 1500).replace(/</g, "&lt;") +
-          "</pre></details>";
+          "<div style='margin-top:8px'><strong>Checks</strong></div><ul>" + checksHtml + "</ul>";
       }
 
-      photoInput.addEventListener("change", (e) => {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        if (file.size > 12 * 1024 * 1024) {
-          selectedFile = null;
-          preview.style.display = "none";
-          renderError("Image is too large. Please use a photo under 12MB.");
-          return;
-        }
-        selectedFile = file;
-        preview.src = URL.createObjectURL(file);
-        preview.style.display = "block";
-        result.style.display = "none";
+      frontInput.addEventListener("change", (event) => {
+        state.front = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+        renderPreviews();
+      });
+
+      backInput.addEventListener("change", (event) => {
+        state.back = event.target.files && event.target.files[0] ? event.target.files[0] : null;
+        renderPreviews();
+      });
+
+      additionalInput.addEventListener("change", (event) => {
+        state.additional = Array.from(event.target.files || []).slice(0, 4);
+        renderPreviews();
       });
 
       runBtn.addEventListener("click", async () => {
-        if (!selectedFile) {
-          renderError("Capture or upload a label first.");
+        if (!state.front || !state.back) {
+          renderError("Front and back photos are required.");
           return;
         }
 
         runBtn.disabled = true;
         runBtn.textContent = "Checking...";
+        result.style.display = "block";
+        result.style.background = "#fffbf2";
+        result.style.borderColor = "rgba(0,0,0,0.1)";
+        result.innerHTML = "Uploading images and running checks...";
 
         try {
           const formData = new FormData();
-          formData.append("photo", selectedFile);
+          formData.append("frontPhoto", state.front);
+          formData.append("backPhoto", state.back);
+          state.additional.forEach((file) => formData.append("additionalPhotos", file));
           if (expectedBrandNameInput.value.trim()) formData.append("expectedBrandName", expectedBrandNameInput.value.trim());
           if (expectedClassTypeInput.value.trim()) formData.append("expectedClassType", expectedClassTypeInput.value.trim());
           if (expectedAbvTextInput.value.trim()) formData.append("expectedAbvText", expectedAbvTextInput.value.trim());
           if (expectedNetContentsInput.value.trim()) formData.append("expectedNetContents", expectedNetContentsInput.value.trim());
           formData.append("requireGovWarning", "true");
 
-          const scanRes = await fetch("/api/scanner/quick-check", {
-            method: "POST",
-            body: formData
-          });
-
+          const scanRes = await fetch("/api/scanner/quick-check", { method: "POST", body: formData });
           if (!scanRes.ok) {
             const payload = await scanRes.json().catch(() => ({}));
             throw new Error(mapScannerError(payload, scanRes.status));
@@ -349,7 +391,7 @@ siteRouter.get("/scanner", (_req, res) => {
           const scan = await scanRes.json();
           renderResult(scan);
         } catch (error) {
-          renderError((error && error.message) ? error.message : "Try again in a few seconds.");
+          renderError(error && error.message ? error.message : "Try again in a few seconds.");
         } finally {
           runBtn.disabled = false;
           runBtn.textContent = "Run Quick Check";
@@ -359,7 +401,6 @@ siteRouter.get("/scanner", (_req, res) => {
   </body>
 </html>`);
 });
-
 siteRouter.get("/admin/queue", (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
