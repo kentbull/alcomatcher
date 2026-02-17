@@ -1,5 +1,5 @@
 [Unit]
-Description=AlcoMatcher OpenClaw monitor (legacy unit alias)
+Description=AlcoMatcher OpenClaw Ops Monitor (tiered alerts)
 After=docker.service network.target
 Requires=docker.service
 

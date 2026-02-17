@@ -72,11 +72,23 @@ Scanner-first, offline-first compliance platform foundation for week one.
   - `application.status_changed`
   - `batch.progress`
 
-## OpenClaw Telegram Alerts (Scanner Failures)
-- Alert script: `infra/openclaw/alert-scanner-failures.sh`
-- Systemd unit template: `infra/openclaw/alcomatcher-openclaw-alerts.service`
+## OpenClaw Ops Monitor + KPI Digests
+- Tiered monitor script: `infra/openclaw/monitor-alerts.sh`
+- KPI digest script: `infra/openclaw/send-kpi-digest.sh`
+- Legacy wrapper script: `infra/openclaw/alert-scanner-failures.sh`
+- Systemd units:
+  - `infra/openclaw/alcomatcher-openclaw-monitor.service`
+  - `infra/openclaw/alcomatcher-openclaw-digest.service`
+  - `infra/openclaw/alcomatcher-openclaw-digest.timer`
+  - legacy alias: `infra/openclaw/alcomatcher-openclaw-alerts.service`
 - Example VM install:
-  - `chmod +x /opt/alcomatcher/infra/openclaw/alert-scanner-failures.sh`
+  - `chmod +x /opt/alcomatcher/infra/openclaw/*.sh /opt/alcomatcher/infra/openclaw/lib/*.sh`
+  - `cp /opt/alcomatcher/infra/openclaw/alcomatcher-openclaw-monitor.service /etc/systemd/system/`
+  - `cp /opt/alcomatcher/infra/openclaw/alcomatcher-openclaw-digest.service /etc/systemd/system/`
+  - `cp /opt/alcomatcher/infra/openclaw/alcomatcher-openclaw-digest.timer /etc/systemd/system/`
   - `cp /opt/alcomatcher/infra/openclaw/alcomatcher-openclaw-alerts.service /etc/systemd/system/`
   - `systemctl daemon-reload`
-  - `systemctl enable --now alcomatcher-openclaw-alerts.service`
+  - `systemctl enable --now alcomatcher-openclaw-monitor.service`
+  - `systemctl enable --now alcomatcher-openclaw-digest.timer`
+- Live drill:
+  - `/bin/bash /opt/alcomatcher/infra/openclaw/monitor-alerts.sh --drill`

@@ -1,0 +1,11 @@
+[Unit]
+Description=AlcoMatcher OpenClaw KPI Digest Timer
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+OnCalendar=*-*-* 18:00:00
+Persistent=true
+Unit=alcomatcher-openclaw-digest.service
+
+[Install]
+WantedBy=timers.target
