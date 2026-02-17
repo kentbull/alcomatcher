@@ -161,6 +161,169 @@ siteRouter.get("/", (_req, res) => {
 </html>`);
 });
 
+siteRouter.get("/privacy", (_req, res) => {
+  const updatedAt = "February 17, 2026";
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Privacy Policy</title>
+    <meta name="description" content="Privacy Policy for AlcoMatcher." />
+    <style>
+      :root {
+        --ink: #2f1c14;
+        --bg: #f8f1e4;
+        --card: #fffaf2;
+        --line: rgba(62, 36, 21, 0.16);
+        --accent: #9c6530;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.55 "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 28px 20px 40px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 22px;
+      }
+      h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 4vw, 2.2rem); }
+      h2 { margin: 22px 0 8px; font-size: 1.1rem; color: var(--accent); }
+      p { margin: 0 0 10px; }
+      ul { margin: 8px 0 12px; padding-left: 20px; }
+      a { color: #7f4f26; text-decoration: none; }
+      .meta { color: rgba(47, 28, 20, 0.72); margin-bottom: 14px; }
+      .nav { margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article class="card">
+        <h1>Privacy Policy</h1>
+        <p class="meta">Last updated: ${updatedAt}</p>
+        <p>
+          This Privacy Policy describes how AlcoMatcher collects, uses, and discloses information when you use our website and mobile applications.
+        </p>
+
+        <h2>Information We Collect</h2>
+        <ul>
+          <li>Images and scan data you submit for compliance checks.</li>
+          <li>Device and usage information needed to operate, secure, and improve the service.</li>
+          <li>Account and workflow metadata when you authenticate or save scans.</li>
+        </ul>
+
+        <h2>How We Use Information</h2>
+        <ul>
+          <li>To provide label scanning, OCR, matching, and compliance reporting features.</li>
+          <li>To support synchronization, reliability, fraud prevention, and service diagnostics.</li>
+          <li>To communicate support or operational updates related to your use of the service.</li>
+        </ul>
+
+        <h2>Sharing and Disclosure</h2>
+        <p>
+          We may share information with service providers that help us host, process, or secure the service. We may also disclose information when required by law, legal process, or to protect rights, safety, and integrity.
+        </p>
+
+        <h2>Data Retention</h2>
+        <p>
+          We retain information for as long as reasonably necessary to provide the service, meet legal obligations, resolve disputes, and enforce agreements.
+        </p>
+
+        <h2>Security</h2>
+        <p>
+          We use commercially reasonable administrative, technical, and organizational measures to protect information, but no method of transmission or storage is guaranteed to be fully secure.
+        </p>
+
+        <h2>Your Choices</h2>
+        <p>
+          You may request access, correction, or deletion of applicable data, subject to legal and operational constraints.
+        </p>
+
+        <h2>Children's Privacy</h2>
+        <p>
+          The service is not directed to children under 13, and we do not knowingly collect personal information from children under 13.
+        </p>
+
+        <h2>Changes to This Policy</h2>
+        <p>
+          We may update this Privacy Policy from time to time. Updated versions will be posted at this URL with a revised effective date.
+        </p>
+
+        <h2>Contact</h2>
+        <p>
+          For privacy questions, contact <a href="mailto:admin@encodible.com">admin@encodible.com</a>.
+        </p>
+        <p class="nav"><a href="/">Back to Home</a></p>
+      </article>
+    </main>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/support", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Support</title>
+    <meta name="description" content="Support contact for AlcoMatcher." />
+    <style>
+      :root {
+        --ink: #2f1c14;
+        --bg: #f8f1e4;
+        --card: #fffaf2;
+        --line: rgba(62, 36, 21, 0.16);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.5 "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 28px 20px 40px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 22px;
+      }
+      h1 { margin: 0 0 10px; font-size: clamp(1.7rem, 4vw, 2rem); }
+      p { margin: 0 0 12px; }
+      a { color: #7f4f26; text-decoration: none; font-weight: 700; }
+      .nav { margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article class="card">
+        <h1>Support</h1>
+        <p>
+          For all AlcoMatcher support requests, please contact:
+          <a href="mailto:admin@encodible.com">admin@encodible.com</a>
+        </p>
+        <p>We will respond as quickly as possible.</p>
+        <p class="nav"><a href="/">Back to Home</a></p>
+      </article>
+    </main>
+  </body>
+</html>`);
+});
+
 siteRouter.get("/scanner", (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
