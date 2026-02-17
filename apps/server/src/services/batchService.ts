@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { complianceService } from "./complianceService.js";
 import { eventStore } from "./eventStore.js";
+import { realtimeEventBus } from "./realtimeEventBus.js";
 import type { BatchItemInput, BatchItemRecord, BatchJobRecord } from "../types/batch.js";
 import type { RegulatoryProfile } from "../types/compliance.js";
 
@@ -46,6 +47,7 @@ export class BatchService {
     this.items.set(batchId, batchItems);
 
     await this.persistBatchState(record, batchItems);
+    this.publishBatchProgress(batchId, app.applicationId, "batch_received", batchItems);
     await this.transitionBatch(batchId, "batch_processing");
     await this.markAllComplete(batchId);
 
@@ -86,6 +88,7 @@ export class BatchService {
       status
     });
     await this.persistBatchState(next, this.items.get(batchId) ?? []);
+    this.publishBatchProgress(next.batchId, next.applicationId, status, this.items.get(batchId) ?? []);
   }
 
   private async markAllComplete(batchId: string) {
@@ -110,6 +113,7 @@ export class BatchService {
       status: "batch_completed"
     });
     await this.persistBatchState(doneJob, completed);
+    this.publishBatchProgress(doneJob.batchId, doneJob.applicationId, "batch_completed", completed);
   }
 
   private async persistBatchState(job: BatchJobRecord, items: BatchItemRecord[]) {
@@ -134,6 +138,29 @@ export class BatchService {
     } catch {
       // Fall back to in-memory only.
     }
+  }
+
+  private publishBatchProgress(
+    batchId: string,
+    applicationId: string,
+    status: BatchJobRecord["status"],
+    items: BatchItemRecord[]
+  ) {
+    const failedItems = items.filter((item) => item.status === "failed").length;
+    const processedItems = items.filter((item) => item.status === "completed" || item.status === "failed").length;
+
+    realtimeEventBus.publish({
+      type: "batch.progress",
+      batchId,
+      applicationId,
+      scope: "all",
+      data: {
+        status,
+        totalItems: items.length,
+        processedItems,
+        failedItems
+      }
+    });
   }
 }
 

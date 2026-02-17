@@ -77,10 +77,17 @@ applicationRouter.post("/api/applications/:applicationId/crdt-ops", async (req, 
   const parsed = appendCrdtOpsSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  const appended = await complianceService.appendCrdtOps(req.params.applicationId, parsed.data.actorId, parsed.data.ops);
-  if (!appended) return res.status(404).json({ error: "application_not_found" });
+  try {
+    const appended = await complianceService.appendCrdtOps(req.params.applicationId, parsed.data.actorId, parsed.data.ops);
+    if (!appended) return res.status(404).json({ error: "application_not_found" });
 
-  return res.status(202).json({ appendedCount: appended.length, ops: appended });
+    return res.status(202).json({ appendedCount: appended.length, ops: appended, syncState: "synced" });
+  } catch (error) {
+    return res.status(500).json({
+      error: "crdt_sync_failed",
+      detail: error instanceof Error ? error.message : "unknown_error"
+    });
+  }
 });
 
 applicationRouter.get("/api/applications/:applicationId/crdt-ops", async (req, res) => {

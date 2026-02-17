@@ -438,6 +438,7 @@ siteRouter.get("/admin/queue", (_req, res) => {
       const queueRows = document.getElementById("queueRows");
       const refreshBtn = document.getElementById("refreshBtn");
       const statusFilter = document.getElementById("statusFilter");
+      let refreshTimer = null;
 
       function renderRows(items) {
         if (!items.length) {
@@ -472,8 +473,22 @@ siteRouter.get("/admin/queue", (_req, res) => {
         }
       }
 
+      function scheduleQueueRefresh() {
+        if (refreshTimer) return;
+        refreshTimer = setTimeout(() => {
+          refreshTimer = null;
+          loadQueue();
+        }, 400);
+      }
+
       refreshBtn.addEventListener("click", loadQueue);
       statusFilter.addEventListener("change", loadQueue);
+      if (typeof EventSource !== "undefined") {
+        const events = new EventSource("/api/events/stream?scope=admin");
+        events.addEventListener("sync.ack", scheduleQueueRefresh);
+        events.addEventListener("application.status_changed", scheduleQueueRefresh);
+        events.addEventListener("batch.progress", scheduleQueueRefresh);
+      }
       loadQueue();
     </script>
   </body>

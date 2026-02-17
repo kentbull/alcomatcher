@@ -62,6 +62,17 @@ interface QueuedCrdtOp {
   payload: Record<string, unknown>;
 }
 
+interface RealtimeEvent {
+  eventId: string;
+  type: "sync.ack" | "application.status_changed" | "batch.progress";
+  applicationId?: string;
+  batchId?: string;
+  data?: {
+    syncState?: "pending_sync" | "synced" | "sync_failed";
+    [key: string]: unknown;
+  };
+}
+
 const CRDT_QUEUE_KEY = "alcomatcher_crdt_queue_v1";
 const CRDT_ACTOR_KEY = "alcomatcher_crdt_actor_v1";
 const CRDT_SEQUENCE_PREFIX = "alcomatcher_crdt_seq_";
@@ -82,6 +93,7 @@ function App() {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<ScannerResponse | null>(null);
   const [error, setError] = useState<string>("");
+  const [serverSyncState, setServerSyncState] = useState<"unknown" | "pending_sync" | "synced" | "sync_failed">("unknown");
 
   const [expectedBrandName, setExpectedBrandName] = useState("");
   const [expectedClassType, setExpectedClassType] = useState("");
@@ -92,10 +104,7 @@ function App() {
   const syncRetryTimeoutRef = useRef<number | null>(null);
   const syncRetryAttemptRef = useRef(0);
 
-  const apiBase = useMemo(() => {
-    return import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com";
-  }, []);
-
+  const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
   const statusClass = result ? `status-${result.summary}` : "";
 
   const getStoredQueue = useCallback((): QueuedCrdtOp[] => {
@@ -130,17 +139,6 @@ function App() {
     return next;
   }, []);
 
-  const scheduleRetry = useCallback(() => {
-    if (syncRetryTimeoutRef.current !== null) return;
-    syncRetryAttemptRef.current += 1;
-    const delayMs = Math.min(1000 * 2 ** syncRetryAttemptRef.current, 30000);
-    setSyncState("retrying");
-    syncRetryTimeoutRef.current = window.setTimeout(() => {
-      syncRetryTimeoutRef.current = null;
-      void flushCrdtQueue();
-    }, delayMs);
-  }, []);
-
   const flushCrdtQueue = useCallback(async () => {
     const queue = getStoredQueue();
     if (queue.length === 0) {
@@ -169,16 +167,16 @@ function App() {
       try {
         const response = await fetch(`${apiBase}/api/applications/${applicationId}/crdt-ops`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ actorId, ops: payloadOps })
         });
         if (!response.ok) {
           failures.add(applicationId);
+          setServerSyncState("sync_failed");
         }
       } catch {
         failures.add(applicationId);
+        setServerSyncState("sync_failed");
       }
     }
 
@@ -192,8 +190,16 @@ function App() {
     const remaining = queue.filter((op) => failures.has(op.applicationId));
     persistQueue(remaining);
     setSyncState("failed");
-    scheduleRetry();
-  }, [apiBase, getActorId, getStoredQueue, persistQueue, scheduleRetry]);
+    if (syncRetryTimeoutRef.current === null) {
+      syncRetryAttemptRef.current += 1;
+      const delayMs = Math.min(1000 * 2 ** syncRetryAttemptRef.current, 30000);
+      setSyncState("retrying");
+      syncRetryTimeoutRef.current = window.setTimeout(() => {
+        syncRetryTimeoutRef.current = null;
+        void flushCrdtQueue();
+      }, delayMs);
+    }
+  }, [apiBase, getActorId, getStoredQueue, persistQueue]);
 
   const enqueueCrdtSync = useCallback(
     (scan: ScannerResponse) => {
@@ -215,24 +221,17 @@ function App() {
       const queue = getStoredQueue();
       queue.push(op);
       persistQueue(queue);
+      setServerSyncState("pending_sync");
       void flushCrdtQueue();
     },
     [flushCrdtQueue, getActorId, getStoredQueue, nextSequenceForApplication, persistQueue]
   );
 
   const mapScannerError = (payload: ScannerErrorPayload, statusCode: number) => {
-    if (payload.error === "photo_too_large" || statusCode === 413) {
-      return "Image is too large. Please use a photo under 12MB.";
-    }
-    if (payload.error === "photo_required") {
-      return "Select or capture a label image first.";
-    }
-    if (payload.detail) {
-      return payload.request_id ? `${payload.detail} (ref: ${payload.request_id})` : payload.detail;
-    }
-    if (payload.error) {
-      return payload.request_id ? `${payload.error} (ref: ${payload.request_id})` : payload.error;
-    }
+    if (payload.error === "photo_too_large" || statusCode === 413) return "Image is too large. Please use a photo under 12MB.";
+    if (payload.error === "photo_required") return "Select or capture a label image first.";
+    if (payload.detail) return payload.request_id ? `${payload.detail} (ref: ${payload.request_id})` : payload.detail;
+    if (payload.error) return payload.request_id ? `${payload.error} (ref: ${payload.request_id})` : payload.error;
     return `HTTP_${statusCode}`;
   };
 
@@ -262,7 +261,6 @@ function App() {
         resultType: CameraResultType.Base64,
         source: CameraSource.Camera
       });
-
       if (!photo.base64String) return;
 
       const blob = base64ToBlob(photo.base64String, photo.format ? `image/${photo.format}` : "image/jpeg");
@@ -281,7 +279,6 @@ function App() {
 
     setChecking(true);
     setError("");
-
     try {
       const formData = new FormData();
       formData.append("photo", selectedFile);
@@ -291,11 +288,7 @@ function App() {
       if (expectedAbvText.trim()) formData.append("expectedAbvText", expectedAbvText.trim());
       if (expectedNetContents.trim()) formData.append("expectedNetContents", expectedNetContents.trim());
 
-      const response = await fetch(`${apiBase}/api/scanner/quick-check`, {
-        method: "POST",
-        body: formData
-      });
-
+      const response = await fetch(`${apiBase}/api/scanner/quick-check`, { method: "POST", body: formData });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as ScannerErrorPayload;
         throw new Error(mapScannerError(payload, response.status));
@@ -305,8 +298,7 @@ function App() {
       setResult(payload);
       enqueueCrdtSync(payload);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unexpected scanner error";
-      setError(message);
+      setError(err instanceof Error ? err.message : "Unexpected scanner error");
     } finally {
       setChecking(false);
     }
@@ -326,6 +318,37 @@ function App() {
     };
   }, [flushCrdtQueue, getStoredQueue]);
 
+  useEffect(() => {
+    if (typeof EventSource === "undefined") return;
+
+    const applicationId = result?.applicationId;
+    const streamUrl = applicationId
+      ? `${apiBase}/api/events/stream?scope=mobile&applicationId=${encodeURIComponent(applicationId)}`
+      : `${apiBase}/api/events/stream?scope=mobile`;
+
+    const stream = new EventSource(streamUrl);
+    const handle = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as RealtimeEvent;
+        if (applicationId && payload.applicationId && payload.applicationId !== applicationId) return;
+        if (payload.data?.syncState) setServerSyncState(payload.data.syncState);
+        if (payload.type === "sync.ack") setSyncState("idle");
+      } catch {
+        // Ignore malformed payloads.
+      }
+    };
+
+    stream.addEventListener("sync.ack", handle as EventListener);
+    stream.addEventListener("application.status_changed", handle as EventListener);
+    stream.onerror = () => {
+      setSyncState((current) => (current === "syncing" ? "retrying" : current));
+    };
+
+    return () => {
+      stream.close();
+    };
+  }, [apiBase, result?.applicationId]);
+
   return (
     <IonApp>
       <IonPage>
@@ -343,28 +366,13 @@ function App() {
 
             <IonList inset>
               <IonItem>
-                <IonInput
-                  label="Expected Brand"
-                  labelPlacement="stacked"
-                  value={expectedBrandName}
-                  onIonInput={(e) => setExpectedBrandName(String(e.detail.value ?? ""))}
-                />
+                <IonInput label="Expected Brand" labelPlacement="stacked" value={expectedBrandName} onIonInput={(e) => setExpectedBrandName(String(e.detail.value ?? ""))} />
               </IonItem>
               <IonItem>
-                <IonInput
-                  label="Expected Class/Type"
-                  labelPlacement="stacked"
-                  value={expectedClassType}
-                  onIonInput={(e) => setExpectedClassType(String(e.detail.value ?? ""))}
-                />
+                <IonInput label="Expected Class/Type" labelPlacement="stacked" value={expectedClassType} onIonInput={(e) => setExpectedClassType(String(e.detail.value ?? ""))} />
               </IonItem>
               <IonItem>
-                <IonInput
-                  label="Expected ABV"
-                  labelPlacement="stacked"
-                  value={expectedAbvText}
-                  onIonInput={(e) => setExpectedAbvText(String(e.detail.value ?? ""))}
-                />
+                <IonInput label="Expected ABV" labelPlacement="stacked" value={expectedAbvText} onIonInput={(e) => setExpectedAbvText(String(e.detail.value ?? ""))} />
               </IonItem>
               <IonItem>
                 <IonInput
@@ -445,12 +453,15 @@ function App() {
                 <IonLabel>Mode: Hybrid (Offline First)</IonLabel>
               </IonItem>
               <IonItem>
-                <IonLabel>Sync: CRDT document sync after quick check</IonLabel>
+                <IonLabel>Sync Queue: CRDT document sync after quick check</IonLabel>
               </IonItem>
               <IonItem>
                 <IonLabel>
-                  Sync State: {syncState} {syncPendingCount > 0 ? `(${syncPendingCount} pending)` : "(0 pending)"}
+                  Transport Sync: {syncState} {syncPendingCount > 0 ? `(${syncPendingCount} pending)` : "(0 pending)"}
                 </IonLabel>
+              </IonItem>
+              <IonItem>
+                <IonLabel>Server Sync: {serverSyncState}</IonLabel>
               </IonItem>
             </IonList>
           </div>

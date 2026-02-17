@@ -3,6 +3,7 @@ import type { ComplianceApplicationDoc, ComplianceEvent, CrdtOperation, Regulato
 import type { ScannerQuickCheckResult } from "../types/scanner.js";
 import type { ExpectedLabelFields } from "../types/scanner.js";
 import { eventStore } from "./eventStore.js";
+import { realtimeEventBus } from "./realtimeEventBus.js";
 
 interface ApplicationProjection {
   applicationId: string;
@@ -64,6 +65,9 @@ export class ComplianceService {
     });
 
     await this.persistApplication(doc);
+    this.publishStatusChanged(doc.applicationId, doc.status, doc.syncState, {
+      reason: "application_created"
+    });
     return doc;
   }
 
@@ -86,6 +90,12 @@ export class ComplianceService {
     });
 
     await this.persistApplication(merged);
+    if (patch.status || patch.syncState) {
+      this.publishStatusChanged(merged.applicationId, merged.status, merged.syncState, {
+        reason: "sync_patch_applied",
+        patchKeys: Object.keys(patch)
+      });
+    }
     return merged;
   }
 
@@ -116,6 +126,11 @@ export class ComplianceService {
     });
 
     await this.persistApplication(updated);
+    this.publishStatusChanged(updated.applicationId, updated.status, updated.syncState, {
+      reason: "scanner_quick_check_recorded",
+      summary: result.summary,
+      confidence: result.confidence
+    });
     return updated;
   }
 
@@ -232,7 +247,8 @@ export class ComplianceService {
   }
 
   async appendCrdtOps(applicationId: string, actorId: string, ops: Array<{ sequence: number; payload: Record<string, unknown> }>) {
-    if (!this.docs.has(applicationId)) return null;
+    const existingDoc = await this.getApplication(applicationId);
+    if (!existingDoc) return null;
 
     const stampedOps: CrdtOperation[] = ops.map((op) => ({
       opId: randomUUID(),
@@ -251,12 +267,25 @@ export class ComplianceService {
     try {
       await eventStore.appendCrdtOps(applicationId, stampedOps);
     } catch {
-      // Keep local state even if persistence is temporarily unavailable.
+      await this.mergeClientSync(applicationId, { syncState: "sync_failed" });
+      throw new Error("crdt_persist_failed");
     }
 
     await this.appendEvent(applicationId, "SyncMerged", {
       opCount: stampedOps.length,
       actorId
+    });
+
+    await this.mergeClientSync(applicationId, { syncState: "synced" });
+    realtimeEventBus.publish({
+      type: "sync.ack",
+      applicationId,
+      scope: "all",
+      data: {
+        actorId,
+        opCount: stampedOps.length,
+        syncState: "synced"
+      }
     });
 
     return stampedOps;
@@ -308,6 +337,24 @@ export class ComplianceService {
     } catch {
       // Non-blocking persistence fallback.
     }
+  }
+
+  private publishStatusChanged(
+    applicationId: string,
+    status: ComplianceApplicationDoc["status"],
+    syncState: ComplianceApplicationDoc["syncState"],
+    context?: Record<string, unknown>
+  ) {
+    realtimeEventBus.publish({
+      type: "application.status_changed",
+      applicationId,
+      scope: "all",
+      data: {
+        status,
+        syncState,
+        ...(context ?? {})
+      }
+    });
   }
 }
 

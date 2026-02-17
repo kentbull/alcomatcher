@@ -56,6 +56,14 @@ Scanner-first, offline-first compliance platform foundation for week one.
 - Compliance report export:
   - `GET /api/applications/:applicationId/report`
 
+## Realtime Events (SSE)
+- Stream endpoint:
+  - `GET /api/events/stream`
+- Event types:
+  - `sync.ack`
+  - `application.status_changed`
+  - `batch.progress`
+
 ## OpenClaw Telegram Alerts (Scanner Failures)
 - Alert script: `infra/openclaw/alert-scanner-failures.sh`
 - Systemd unit template: `infra/openclaw/alcomatcher-openclaw-alerts.service`

@@ -5,6 +5,7 @@ import pino from "pino";
 import { env } from "./config/env.js";
 import { applicationRouter } from "./routes/applications.js";
 import { batchRouter } from "./routes/batches.js";
+import { eventsRouter } from "./routes/events.js";
 import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
 import { siteRouter } from "./routes/site.js";
@@ -40,6 +41,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(siteRouter);
 app.use(healthRouter);
+app.use(eventsRouter);
 app.use(applicationRouter);
 app.use(batchRouter);
 app.use(scannerRouter);
