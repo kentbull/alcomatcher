@@ -143,6 +143,18 @@ function App() {
         ? "Capturing image..."
         : "";
 
+  useEffect(() => {
+    const splash = document.getElementById("boot-splash");
+    document.body.classList.add("app-ready");
+    if (!splash) return;
+    const hideTimer = window.setTimeout(() => splash.classList.add("is-hidden"), 120);
+    const removeTimer = window.setTimeout(() => splash.remove(), 460);
+    return () => {
+      window.clearTimeout(hideTimer);
+      window.clearTimeout(removeTimer);
+    };
+  }, []);
+
   const sortedImages = [...images].sort((a, b) => {
     const roleDiff = roleRank(a.role) - roleRank(b.role);
     if (roleDiff !== 0) return roleDiff;
@@ -503,6 +515,15 @@ function App() {
       <IonPage>
         <IonContent className="scanner-content" fullscreen scrollY={false}>
           <div className="scanner-shell">
+            {captureMode === "preview" && !previewReady ? (
+              <div className="scanner-warmup" role="status" aria-live="polite">
+                <div className="scanner-warmup-card">
+                  <div className="scanner-warmup-spinner" aria-hidden="true" />
+                  <strong>Starting camera scanner</strong>
+                  <span>Loading secure live preview...</span>
+                </div>
+              </div>
+            ) : null}
             <section className="scanner-hero">
               <IonText>
                 <div className="crest-chip">

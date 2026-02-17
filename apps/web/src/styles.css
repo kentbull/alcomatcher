@@ -58,6 +58,47 @@ ion-app {
   z-index: 1;
 }
 
+.scanner-warmup {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(60% 48% at 50% 12%, rgba(255, 227, 179, 0.24), transparent),
+    linear-gradient(180deg, rgba(31, 19, 13, 0.72), rgba(31, 19, 13, 0.52));
+  backdrop-filter: blur(1px);
+}
+
+.scanner-warmup-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.7rem;
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(236, 199, 139, 0.28);
+  background: rgba(24, 14, 10, 0.58);
+  color: #fae8c7;
+}
+
+.scanner-warmup-card strong {
+  font-size: 1rem;
+}
+
+.scanner-warmup-card span {
+  font-size: 0.84rem;
+  color: rgba(246, 228, 197, 0.86);
+}
+
+.scanner-warmup-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 2.6px solid rgba(237, 201, 142, 0.3);
+  border-top-color: #f0c272;
+  animation: boot-spin 760ms linear infinite;
+}
+
 .preview-warning {
   margin-top: 0.36rem;
   font-size: 0.82rem;
@@ -403,6 +444,12 @@ ion-app {
   }
   50% {
     box-shadow: 0 0 0 2px rgba(234, 171, 48, 0.4), 0 7px 16px rgba(0, 0, 0, 0.15);
+  }
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
