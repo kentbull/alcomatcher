@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { complianceService } from "./complianceService.js";
 import { realtimeEventBus } from "./realtimeEventBus.js";
 import { ScannerService } from "./scannerService.js";
+import { submissionImageStore } from "./submissionImageStore.js";
 import type { ExpectedLabelFields, PerImageScanResult, ScanImageRole, ScannerQuickCheckResult, ScannerStageTimings } from "../types/scanner.js";
 
 export type ScanSessionStatus = "draft_scan_started" | "collecting_images" | "ready_to_finalize" | "finalized" | "pruned";
@@ -111,6 +112,14 @@ export class ScannerSessionService {
     this.emitImageProgress(session, imageRecord, "image_upload_started", "in_progress");
 
     try {
+      await submissionImageStore.saveImage({
+        imageId: imageRecord.imageId,
+        applicationId: session.applicationId,
+        role,
+        imageIndex: index,
+        image: payload.image,
+        mimeType: "image/jpeg"
+      });
       imageRecord.uploadState = "processing";
       imageRecord.uploadedAt = new Date().toISOString();
       this.emitImageProgress(session, imageRecord, "image_upload_completed", "completed");
@@ -137,7 +146,8 @@ export class ScannerSessionService {
     sessionId: string,
     expected: ExpectedLabelFields | undefined,
     clientSyncMode: "crdt" | "direct",
-    clientStageTimings?: ScannerStageTimings
+    clientStageTimings?: ScannerStageTimings,
+    actorUserId?: string
   ): Promise<{ session: ScanSession; result: ScannerQuickCheckResult } | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
@@ -146,6 +156,11 @@ export class ScannerSessionService {
         session,
         result: session.finalizedResult
       };
+    }
+
+    if (!session.ownerUserId && actorUserId) {
+      session.ownerUserId = actorUserId;
+      await complianceService.claimApplicationOwner(session.applicationId, actorUserId);
     }
 
     const front = session.images.find((img) => img.role === "front" && img.uploadState === "ready" && img.result);

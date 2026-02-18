@@ -4,6 +4,7 @@ export interface AuthUser {
   userId: string;
   email: string;
   role: UserRole;
+  tokenVersion?: number;
 }
 
 export interface OtpChallenge {
@@ -17,3 +18,13 @@ export interface OtpChallenge {
   consumedAt?: string;
 }
 
+export interface AuthUserRecord {
+  userId: string;
+  email: string;
+  role: UserRole;
+  isActive: boolean;
+  emailVerifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  tokenVersion: number;
+}

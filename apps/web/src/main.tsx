@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createRoot } from "react-dom/client";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import { setupIonicReact } from "@ionic/react";
-import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonText } from "@ionic/react";
-import { add, close, paperPlaneOutline, receiptOutline } from "ionicons/icons";
+import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonPopover, IonText } from "@ionic/react";
+import { add, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline } from "ionicons/icons";
 import "@ionic/react/css/core.css";
 import "@ionic/react/css/normalize.css";
 import "@ionic/react/css/structure.css";
@@ -18,6 +19,7 @@ type Role = "front" | "back" | "additional";
 type UploadState = "queued" | "uploading" | "processing" | "ready" | "failed";
 type CapturePhase = "front" | "back" | "additional";
 type CaptureMode = "preview" | "modal";
+type UserRole = "compliance_officer" | "compliance_manager";
 
 interface ScannerCheck {
   id: string;
@@ -105,6 +107,74 @@ interface ScannerCaptureAdapter {
   captureFrame: (role: Role) => Promise<File>;
 }
 
+interface MobileAuthUser {
+  userId: string;
+  email: string;
+  role: UserRole;
+  initials: string;
+}
+
+interface PendingCrdtCommit {
+  applicationId: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  attempts: number;
+}
+
+interface HistoryItem {
+  applicationId: string;
+  status: string;
+  syncState: "synced" | "pending_sync" | "sync_failed";
+  updatedAt: string;
+  summary: "pass" | "fail" | "needs_review" | null;
+  confidence: number | null;
+  imageCount: number;
+}
+
+interface HistoryDetail {
+  application: {
+    applicationId: string;
+    status: string;
+    syncState: "synced" | "pending_sync" | "sync_failed";
+    updatedAt: string;
+    createdByUserId: string | null;
+  };
+  report: {
+    checks: Array<{
+      checkId: string;
+      label: string;
+      status: "pass" | "fail" | "not_evaluable";
+      evidenceText: string;
+      failureReason?: string;
+    }>;
+    latestQuickCheck?: {
+      summary: "pass" | "fail" | "needs_review";
+      confidence: number;
+    } | null;
+  };
+  images: Array<{
+    imageId: string;
+    role: Role;
+    index: number;
+    thumbUrl: string;
+    fullUrl: string;
+    thumbSrc?: string;
+  }>;
+}
+
+interface PreviewLifecycleState {
+  isStarting: boolean;
+  isStopping: boolean;
+  isStarted: boolean;
+  instanceToken: number;
+}
+
+const AUTH_TOKEN_KEY = "alcomatcher.auth.token";
+const AUTH_USER_KEY = "alcomatcher.auth.user";
+const PENDING_CLAIM_IDS_KEY = "alcomatcher.pending.claim.ids";
+const PENDING_CRDT_COMMITS_KEY = "alcomatcher.pending.crdt.commits";
+const CRDT_SEQUENCE_MAP_KEY = "alcomatcher.crdt.sequence.map";
+
 const STATUS_LABEL: Record<UploadState, string> = {
   queued: "Queued",
   uploading: "Uploading",
@@ -123,6 +193,15 @@ function roleRank(role: Role) {
   if (role === "front") return 0;
   if (role === "back") return 1;
   return 2;
+}
+
+function initialsFromEmail(email: string) {
+  const local = (email.split("@")[0] ?? "").trim();
+  const words = local.split(/[._\-]+/).filter(Boolean);
+  if (words.length >= 2) {
+    return `${words[0][0] ?? ""}${words[1][0] ?? ""}`.toUpperCase();
+  }
+  return local.slice(0, 2).toUpperCase() || "U";
 }
 
 function base64ToFile(base64Payload: string, fileName: string, mimeType = "image/jpeg") {
@@ -157,6 +236,20 @@ function formatNetworkError(error: unknown, operation: string) {
   return `${operation} failed: ${message}`;
 }
 
+function parseJsonValue<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function previewDebug(event: string, details: Record<string, unknown> = {}) {
+  if (import.meta.env.PROD) return;
+  console.debug(`[preview] ${event}`, details);
+}
+
 function App() {
   const [images, setImages] = useState<LocalImage[]>([]);
   const [sessionId, setSessionId] = useState<string>("");
@@ -172,11 +265,35 @@ function App() {
   const [reportVisible, setReportVisible] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<FinalizeResult | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authInfo, setAuthInfo] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authCode, setAuthCode] = useState("");
+  const [authToken, setAuthToken] = useState("");
+  const [authUser, setAuthUser] = useState<MobileAuthUser | null>(null);
+  const [authRestoreComplete, setAuthRestoreComplete] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyDetail, setHistoryDetail] = useState<HistoryDetail | null>(null);
+  const [historyDetailOpen, setHistoryDetailOpen] = useState(false);
+  const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
 
   const frontInputRef = useRef<HTMLInputElement | null>(null);
   const backInputRef = useRef<HTMLInputElement | null>(null);
   const addInputRef = useRef<HTMLInputElement | null>(null);
   const expansionTimerRef = useRef<number | null>(null);
+  const createSessionRef = useRef<() => Promise<{ sessionId: string; applicationId: string } | null>>(async () => null);
+  const previewLifecycleRef = useRef<PreviewLifecycleState>({
+    isStarting: false,
+    isStopping: false,
+    isStarted: false,
+    instanceToken: 0
+  });
   const stageClockRef = useRef<{
     sessionCreateStartedAt?: number;
     sessionCreateEndedAt?: number;
@@ -207,6 +324,180 @@ function App() {
         ? "Capturing image..."
         : "";
 
+  const apiFetch = useCallback(
+    (input: string, init: RequestInit = {}, retries = 1, retryDelayMs = 420) => {
+      const headers = new Headers(init.headers ?? {});
+      if (authToken && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${authToken}`);
+      }
+      return fetchWithRetry(input, { ...init, headers }, retries, retryDelayMs);
+    },
+    [authToken]
+  );
+
+  const addPendingClaimApplication = useCallback(async (applicationId: string) => {
+    if (!applicationId || authToken) return;
+    const state = await Preferences.get({ key: PENDING_CLAIM_IDS_KEY });
+    const current = parseJsonValue<string[]>(state.value, []);
+    if (current.includes(applicationId)) return;
+    await Preferences.set({ key: PENDING_CLAIM_IDS_KEY, value: JSON.stringify([...current, applicationId].slice(-80)) });
+  }, [authToken]);
+
+  const claimPendingApplications = useCallback(async (token: string) => {
+    const state = await Preferences.get({ key: PENDING_CLAIM_IDS_KEY });
+    const current = parseJsonValue<string[]>(state.value, []);
+    if (current.length === 0) return;
+    const keep: string[] = [];
+    for (const applicationId of current) {
+      try {
+        const response = await fetch(`${apiBase}/api/applications/${applicationId}/claim-owner`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!response.ok && response.status !== 409) keep.push(applicationId);
+      } catch {
+        keep.push(applicationId);
+      }
+    }
+    if (keep.length > 0) {
+      await Preferences.set({ key: PENDING_CLAIM_IDS_KEY, value: JSON.stringify(keep) });
+    } else {
+      await Preferences.remove({ key: PENDING_CLAIM_IDS_KEY });
+    }
+  }, [apiBase]);
+
+  const queuePendingCrdtCommit = useCallback(async (applicationId: string, payload: Record<string, unknown>) => {
+    if (!applicationId) return;
+    const state = await Preferences.get({ key: PENDING_CRDT_COMMITS_KEY });
+    const current = parseJsonValue<PendingCrdtCommit[]>(state.value, []);
+    const deduped = current.filter((entry) => entry.applicationId !== applicationId);
+    deduped.push({
+      applicationId,
+      payload,
+      createdAt: new Date().toISOString(),
+      attempts: 0
+    });
+    await Preferences.set({ key: PENDING_CRDT_COMMITS_KEY, value: JSON.stringify(deduped.slice(-200)) });
+  }, []);
+
+  const flushPendingCrdtCommits = useCallback(async (token: string, actorUserId: string) => {
+    if (!token || !actorUserId) return;
+    const [pendingState, sequenceState] = await Promise.all([
+      Preferences.get({ key: PENDING_CRDT_COMMITS_KEY }),
+      Preferences.get({ key: CRDT_SEQUENCE_MAP_KEY })
+    ]);
+    const pending = parseJsonValue<PendingCrdtCommit[]>(pendingState.value, []);
+    if (pending.length === 0) return;
+    const sequenceMap = parseJsonValue<Record<string, number>>(sequenceState.value, {});
+    const keep: PendingCrdtCommit[] = [];
+
+    for (const entry of pending) {
+      const sequenceKey = `${entry.applicationId}:${actorUserId}`;
+      const nextSequence = (sequenceMap[sequenceKey] ?? 0) + 1;
+      try {
+        const response = await fetch(`${apiBase}/api/applications/${entry.applicationId}/crdt-ops`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            actorId: actorUserId,
+            ops: [{ sequence: nextSequence, payload: entry.payload }]
+          })
+        });
+        if (response.ok) {
+          sequenceMap[sequenceKey] = nextSequence;
+          continue;
+        }
+        keep.push({
+          ...entry,
+          attempts: entry.attempts + 1
+        });
+      } catch {
+        keep.push({
+          ...entry,
+          attempts: entry.attempts + 1
+        });
+      }
+    }
+
+    await Preferences.set({ key: CRDT_SEQUENCE_MAP_KEY, value: JSON.stringify(sequenceMap) });
+    if (keep.length > 0) {
+      await Preferences.set({ key: PENDING_CRDT_COMMITS_KEY, value: JSON.stringify(keep.slice(-200)) });
+    } else {
+      await Preferences.remove({ key: PENDING_CRDT_COMMITS_KEY });
+    }
+  }, [apiBase]);
+
+  const loadHistory = useCallback(async () => {
+    if (!authToken) {
+      setHistoryItems([]);
+      setHistoryError("");
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const response = await apiFetch(`${apiBase}/api/history?limit=30`, { method: "GET" }, 1, 400);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 404) {
+          // Older server build without history routes, treat as empty state.
+          setHistoryItems([]);
+          setHistoryError("");
+          return;
+        }
+        if (response.status === 401) throw new Error("Sign in to view history.");
+        if (response.status === 403) throw new Error("You do not have access to this history.");
+        throw new Error("Unable to load history. Please retry.");
+      }
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      setHistoryItems(items as HistoryItem[]);
+      setHistoryError("");
+    } catch (err) {
+      setHistoryError(formatNetworkError(err, "Load history"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [apiBase, apiFetch, authToken]);
+
+  const openHistoryDetail = useCallback(async (applicationId: string) => {
+    if (!authToken) return;
+    setHistoryDetailLoading(true);
+    setHistoryDetail(null);
+    setHistoryDetailOpen(true);
+    try {
+      const response = await apiFetch(`${apiBase}/api/history/${applicationId}`, { method: "GET" }, 1, 400);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "history_detail_failed");
+      const detail = payload as HistoryDetail;
+      const hydratedImages = await Promise.all(
+        (detail.images ?? []).map(async (image) => {
+          try {
+            const thumbResponse = await apiFetch(`${apiBase}${image.thumbUrl}`, { method: "GET" }, 1, 300);
+            if (!thumbResponse.ok) return image;
+            const blob = await thumbResponse.blob();
+            return {
+              ...image,
+              thumbSrc: URL.createObjectURL(blob)
+            };
+          } catch {
+            return image;
+          }
+        })
+      );
+      setHistoryDetail({
+        ...detail,
+        images: hydratedImages
+      });
+    } catch (err) {
+      setHistoryError(formatNetworkError(err, "Load history detail"));
+    } finally {
+      setHistoryDetailLoading(false);
+    }
+  }, [apiBase, apiFetch, authToken]);
+
   useEffect(() => {
     const splash = document.getElementById("boot-splash");
     document.body.classList.add("app-ready");
@@ -218,6 +509,73 @@ function App() {
       window.clearTimeout(removeTimer);
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const restoreAuth = async () => {
+      const [tokenState, userState] = await Promise.all([Preferences.get({ key: AUTH_TOKEN_KEY }), Preferences.get({ key: AUTH_USER_KEY })]);
+      const token = tokenState.value ?? "";
+      if (!token) {
+        if (!cancelled) setAuthRestoreComplete(true);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${apiBase}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        if (!response.ok) throw new Error("token_invalid");
+        const payload = await response.json();
+        const user = payload?.user;
+        if (!user || typeof user.email !== "string" || typeof user.userId !== "string") throw new Error("invalid_user");
+        const role: UserRole = user.role === "compliance_manager" ? "compliance_manager" : "compliance_officer";
+        if (cancelled) return;
+        const nextUser: MobileAuthUser = {
+          userId: user.userId,
+          email: user.email,
+          role,
+          initials: initialsFromEmail(user.email)
+        };
+        setAuthToken(token);
+        setAuthUser(nextUser);
+        await claimPendingApplications(token);
+        await flushPendingCrdtCommits(token, nextUser.userId);
+        if (historyOpen) await loadHistory();
+      } catch {
+        if (cancelled) return;
+        setAuthToken("");
+        setAuthUser(null);
+        await Promise.all([Preferences.remove({ key: AUTH_TOKEN_KEY }), Preferences.remove({ key: AUTH_USER_KEY })]);
+        const remembered = userState.value;
+        if (remembered) setAuthInfo("Session expired. Sign in again.");
+      } finally {
+        if (!cancelled) setAuthRestoreComplete(true);
+      }
+    };
+    void restoreAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, claimPendingApplications, flushPendingCrdtCommits, historyOpen, loadHistory]);
+
+  useEffect(() => {
+    if (!authUser) setAccountMenuOpen(false);
+  }, [authUser]);
+
+  useEffect(() => {
+    if (!historyOpen || !authToken) return;
+    void loadHistory();
+  }, [authToken, historyOpen, loadHistory]);
+
+  useEffect(() => {
+    return () => {
+      for (const image of historyDetail?.images ?? []) {
+        if (image.thumbSrc?.startsWith("blob:")) URL.revokeObjectURL(image.thumbSrc);
+      }
+    };
+  }, [historyDetail]);
 
   const roleStageKey = useCallback((role: Role, index: number) => `${role}:${index}`, []);
 
@@ -290,7 +648,7 @@ function App() {
     setError("");
     stageClockRef.current.sessionCreateStartedAt = Date.now();
     try {
-      const response = await fetchWithRetry(`${apiBase}/api/scanner/sessions`, { method: "POST" }, 1);
+      const response = await apiFetch(`${apiBase}/api/scanner/sessions`, { method: "POST" }, 1);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error("Server is on an older API version. /api/scanner/sessions is not deployed yet.");
@@ -300,6 +658,7 @@ function App() {
       const payload = await response.json();
       setSessionId(payload.sessionId);
       setApplicationId(payload.applicationId);
+      await addPendingClaimApplication(String(payload.applicationId ?? ""));
       stageClockRef.current.sessionCreateEndedAt = Date.now();
       return {
         sessionId: String(payload.sessionId ?? ""),
@@ -311,6 +670,123 @@ function App() {
     } finally {
       setSessionLoading(false);
     }
+  }, [addPendingClaimApplication, apiBase, apiFetch]);
+
+  useEffect(() => {
+    createSessionRef.current = createSession;
+  }, [createSession]);
+
+  const requestOtp = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthInfo("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/otp/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === "string" ? payload.error : "otp_request_failed");
+      }
+      if (typeof payload?.debugCode === "string" && payload.debugCode.length > 0) {
+        setAuthCode(payload.debugCode);
+        setAuthInfo(`OTP requested. Dev code auto-filled.`);
+      } else if (payload?.status === "queued") {
+        setAuthInfo("OTP request accepted. Delivery is retrying in the background; check email shortly.");
+      } else if (payload?.status === "sent") {
+        setAuthInfo("OTP sent. Check your email and enter the code.");
+      } else {
+        setAuthInfo("OTP requested. Check your channel and enter the code.");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "otp_request_failed");
+      if (message.includes("email_not_verified")) {
+        setAuthError("Email not verified. Open the verification email link, then request OTP again.");
+      } else if (message.includes("rate_limited")) {
+        setAuthError("Too many OTP attempts. Please wait a moment and retry.");
+      } else if (message.includes("otp_delivery_unavailable")) {
+        setAuthError("OTP email could not be delivered right now. Please retry in a few seconds.");
+      } else {
+        setAuthError(formatNetworkError(err, "Request OTP"));
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [apiBase, authEmail]);
+
+  const verifyOtp = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthInfo("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/otp/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmail.trim(),
+          code: authCode.trim()
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === "string" ? payload.error : "otp_verify_failed");
+      }
+      const token = typeof payload?.token === "string" ? payload.token : "";
+      const user = payload?.user as { userId?: string; email?: string; role?: string } | undefined;
+      if (!token || !user?.userId || !user?.email) throw new Error("invalid_auth_response");
+      const role: UserRole = user.role === "compliance_manager" ? "compliance_manager" : "compliance_officer";
+      const nextUser: MobileAuthUser = {
+        userId: user.userId,
+        email: user.email,
+        role,
+        initials: initialsFromEmail(user.email)
+      };
+      setAuthToken(token);
+      setAuthUser(nextUser);
+      await Promise.all([
+        Preferences.set({ key: AUTH_TOKEN_KEY, value: token }),
+        Preferences.set({ key: AUTH_USER_KEY, value: JSON.stringify(nextUser) })
+      ]);
+      await claimPendingApplications(token);
+      await flushPendingCrdtCommits(token, nextUser.userId);
+      if (historyOpen) await loadHistory();
+      setAuthModalOpen(false);
+      setAuthCode("");
+      setAuthInfo("Signed in.");
+      setAccountMenuOpen(false);
+    } catch (err) {
+      setAuthError(formatNetworkError(err, "Verify OTP"));
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [apiBase, authCode, authEmail, claimPendingApplications, flushPendingCrdtCommits, historyOpen, loadHistory]);
+
+  const logout = useCallback(async () => {
+    setAccountMenuOpen(false);
+    try {
+      if (authToken) {
+        await fetch(`${apiBase}/api/auth/logout`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          }
+        });
+      }
+    } catch {
+      // Ignore logout network errors.
+    } finally {
+      setAuthToken("");
+      setAuthUser(null);
+      setAccountMenuOpen(false);
+      await Promise.all([Preferences.remove({ key: AUTH_TOKEN_KEY }), Preferences.remove({ key: AUTH_USER_KEY })]);
+    }
+  }, [apiBase, authToken]);
+
+  const openAdminQueue = useCallback(() => {
+    setAccountMenuOpen(false);
+    window.location.assign(`${apiBase}/admin/queue`);
   }, [apiBase]);
 
   const modalAdapter = useMemo<ScannerCaptureAdapter>(
@@ -365,9 +841,62 @@ function App() {
     [captureMode, modalAdapter, previewAdapter]
   );
 
-  useEffect(() => {
-    void createSession();
+  const startPreviewGuarded = useCallback(async (reason: string) => {
+    const lifecycle = previewLifecycleRef.current;
+    if (lifecycle.isStarted || lifecycle.isStarting) {
+      previewDebug("start_ignored", { reason, isStarted: lifecycle.isStarted, isStarting: lifecycle.isStarting });
+      return;
+    }
+    lifecycle.isStarting = true;
+    const token = lifecycle.instanceToken + 1;
+    lifecycle.instanceToken = token;
+    previewDebug("start_attempt", { reason, token });
+    try {
+      await previewAdapter.startPreview?.();
+      if (previewLifecycleRef.current.instanceToken !== token) {
+        previewDebug("start_stale", { reason, token });
+        return;
+      }
+      lifecycle.isStarted = true;
+      previewDebug("start_ok", { reason, token });
+    } finally {
+      if (previewLifecycleRef.current.instanceToken === token) {
+        lifecycle.isStarting = false;
+      }
+    }
+  }, [previewAdapter]);
 
+  const stopPreviewGuarded = useCallback(async (reason: string) => {
+    const lifecycle = previewLifecycleRef.current;
+    if (!lifecycle.isStarted || lifecycle.isStopping) {
+      previewDebug("stop_ignored", { reason, isStarted: lifecycle.isStarted, isStopping: lifecycle.isStopping });
+      return;
+    }
+    lifecycle.isStopping = true;
+    const token = lifecycle.instanceToken + 1;
+    lifecycle.instanceToken = token;
+    previewDebug("stop_attempt", { reason, token });
+    try {
+      await previewAdapter.stopPreview?.();
+      if (previewLifecycleRef.current.instanceToken !== token) {
+        previewDebug("stop_stale", { reason, token });
+        return;
+      }
+      lifecycle.isStarted = false;
+      previewDebug("stop_ok", { reason, token });
+    } finally {
+      if (previewLifecycleRef.current.instanceToken === token) {
+        lifecycle.isStopping = false;
+      }
+    }
+  }, [previewAdapter]);
+
+  useEffect(() => {
+    if (!authRestoreComplete || sessionId) return;
+    void createSessionRef.current();
+  }, [authRestoreComplete, sessionId]);
+
+  useEffect(() => {
     let disposed = false;
     const startPreview = async () => {
       if (!Capacitor.isNativePlatform()) {
@@ -377,7 +906,7 @@ function App() {
       }
 
       try {
-        await previewAdapter.startPreview?.();
+        await startPreviewGuarded("mount");
         if (disposed) return;
         setCaptureMode("preview");
         setPreviewReady(true);
@@ -395,9 +924,9 @@ function App() {
     return () => {
       disposed = true;
       if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
-      void previewAdapter.stopPreview?.();
+      void stopPreviewGuarded("unmount");
     };
-  }, [createSession, previewAdapter]);
+  }, [startPreviewGuarded, stopPreviewGuarded]);
 
   const updateImageState = useCallback((localId: string, patch: Partial<LocalImage>) => {
     setImages((current) => current.map((image) => (image.localId === localId ? { ...image, ...patch } : image)));
@@ -450,7 +979,7 @@ function App() {
         formData.append("image", compressed);
         formData.append("role", role);
         formData.append("index", String(nextIndex));
-        let response = await fetchWithRetry(
+        let response = await apiFetch(
           `${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`,
           {
             method: "POST",
@@ -466,7 +995,7 @@ function App() {
           if (!resolvedSessionId) {
             throw new Error("Unable to recover scan session. Check network and retry.");
           }
-          response = await fetchWithRetry(
+          response = await apiFetch(
             `${apiBase}/api/scanner/sessions/${resolvedSessionId}/images`,
             {
               method: "POST",
@@ -494,7 +1023,7 @@ function App() {
         });
       }
     },
-    [apiBase, compressImage, createSession, images, roleStageKey, sessionId, updateImageState]
+    [apiBase, apiFetch, compressImage, createSession, images, roleStageKey, sessionId, updateImageState]
   );
 
   const retryUpload = useCallback(
@@ -572,7 +1101,7 @@ function App() {
         throw new Error("Unable to start scan session. Check network and retry.");
       }
       const telemetry = buildClientMetrics();
-      let response = await fetchWithRetry(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/finalize`, {
+      let response = await apiFetch(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/finalize`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -596,15 +1125,48 @@ function App() {
         throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
       }
       stageClockRef.current.finalizeEndedAt = Date.now();
-      setApplicationId(payload.applicationId ?? applicationId);
+      const finalizedApplicationId = String(payload.applicationId ?? applicationId ?? "");
+      setApplicationId(finalizedApplicationId);
       setResult(payload as FinalizeResult);
       setReportVisible(true);
+      if (finalizedApplicationId) {
+        await queuePendingCrdtCommit(finalizedApplicationId, {
+          kind: "scanner_finalize_commit",
+          applicationId: finalizedApplicationId,
+          sessionId: resolvedSessionId,
+          summary: payload.summary,
+          confidence: payload.confidence,
+          telemetryQuality: payload.telemetryQuality ?? "partial",
+          committedAt: new Date().toISOString()
+        });
+      }
+      if (authToken && authUser) {
+        await claimPendingApplications(authToken);
+        await flushPendingCrdtCommits(authToken, authUser.userId);
+        if (historyOpen) await loadHistory();
+      }
     } catch (err) {
       setError(formatNetworkError(err, "Send/Finalize"));
     } finally {
       setFinalizing(false);
     }
-  }, [apiBase, applicationId, backReady, buildClientMetrics, createSession, frontReady, sessionId]);
+  }, [
+    apiBase,
+    apiFetch,
+    applicationId,
+    authToken,
+    authUser,
+    backReady,
+    buildClientMetrics,
+    claimPendingApplications,
+    createSession,
+    flushPendingCrdtCommits,
+    frontReady,
+    historyOpen,
+    loadHistory,
+    queuePendingCrdtCommit,
+    sessionId
+  ]);
 
   const spreadStack = useCallback(
     (index: number) => {
@@ -621,7 +1183,8 @@ function App() {
 
   useEffect(() => {
     if (typeof EventSource === "undefined" || !applicationId) return;
-    const stream = new EventSource(`${apiBase}/api/events/stream?scope=mobile&applicationId=${encodeURIComponent(applicationId)}`);
+    let stream: EventSource | null = null;
+    let disposed = false;
     const onProgress = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data) as ScanProgressEvent;
@@ -660,11 +1223,34 @@ function App() {
         // Ignore malformed SSE payloads.
       }
     };
-    stream.addEventListener("scan.progress", onProgress as EventListener);
-    return () => {
-      stream.close();
+
+    const connect = async () => {
+      let streamUrl = `${apiBase}/api/events/stream?scope=mobile&applicationId=${encodeURIComponent(applicationId)}`;
+      if (authToken) {
+        try {
+          const ticketResponse = await apiFetch(`${apiBase}/api/events/stream-auth-ticket`, { method: "GET" }, 1, 350);
+          if (ticketResponse.ok) {
+            const ticketPayload = await ticketResponse.json();
+            const ticket = typeof ticketPayload?.ticket === "string" ? ticketPayload.ticket : "";
+            if (ticket) {
+              streamUrl += `&ticket=${encodeURIComponent(ticket)}`;
+            }
+          }
+        } catch {
+          // Fall back to anonymous stream URL if ticket fetch fails.
+        }
+      }
+      if (disposed) return;
+      stream = new EventSource(streamUrl);
+      stream.addEventListener("scan.progress", onProgress as EventListener);
     };
-  }, [apiBase, applicationId, roleStageKey]);
+    void connect();
+
+    return () => {
+      disposed = true;
+      stream?.close();
+    };
+  }, [apiBase, apiFetch, applicationId, authToken, roleStageKey]);
 
   const scanButtonLabel = captureBusy ? "Capturing..." : "Scan Another";
 
@@ -672,7 +1258,7 @@ function App() {
     <IonApp>
       <IonPage>
         <IonContent className="scanner-content" fullscreen scrollY={false}>
-          <div className="scanner-shell">
+          <div className={`scanner-shell ${captureMode === "preview" && previewReady ? "scanner-live" : ""}`}>
             {captureMode === "preview" && !previewReady ? (
               <div className="scanner-warmup" role="status" aria-live="polite">
                 <div className="scanner-warmup-card">
@@ -684,9 +1270,37 @@ function App() {
             ) : null}
             <section className="scanner-hero">
               <IonText>
-                <div className="crest-chip">
-                  <img src="/alcomatcher-crest.svg" alt="AlcoMatcher crest" />
-                  <span>AlcoMatcher</span>
+                <div className="hero-topbar">
+                  <div className="crest-chip">
+                    <img src="/alcomatcher-crest.svg" alt="AlcoMatcher crest" />
+                    <span>AlcoMatcher</span>
+                  </div>
+                  {!authUser ? (
+                    <button
+                      type="button"
+                      className="auth-login-btn"
+                      onClick={() => {
+                        setAuthModalOpen(true);
+                        setAuthError("");
+                        setAuthInfo("");
+                      }}
+                    >
+                      <IonIcon icon={logInOutline} />
+                      <span>Log In</span>
+                    </button>
+                  ) : (
+                    <div className="auth-avatar-wrap">
+                      <button
+                        id="account-avatar-trigger"
+                        type="button"
+                        className={`auth-avatar auth-role-${authUser.role}`}
+                        onClick={() => setAccountMenuOpen((current) => !current)}
+                        aria-label="Account"
+                      >
+                        {authUser.initials}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <h1>{activePrompt}</h1>
                 <p>
@@ -698,6 +1312,7 @@ function App() {
                   }
                 </p>
                 {previewError ? <p className="preview-warning">Preview fallback: {previewError}</p> : null}
+                {authInfo ? <p className="preview-warning">{authInfo}</p> : null}
               </IonText>
               {isNativeIos ? null : (
                 <>
@@ -832,6 +1447,166 @@ function App() {
             ) : null}
 
           </div>
+          <IonPopover
+            isOpen={accountMenuOpen}
+            trigger="account-avatar-trigger"
+            triggerAction="click"
+            onDidDismiss={() => setAccountMenuOpen(false)}
+            className="account-popover"
+            alignment="end"
+            side="bottom"
+          >
+            <div className="account-popover-content">
+              {authUser ? (
+                <div className="account-row">
+                  <IonIcon icon={personCircleOutline} />
+                  <div>
+                    <strong>{authUser.email}</strong>
+                    <span>{authUser.role === "compliance_manager" ? "Compliance Manager" : "Compliance Officer"}</span>
+                  </div>
+                </div>
+              ) : null}
+              {authUser?.role === "compliance_manager" ? (
+                <button type="button" className="account-action" onClick={openAdminQueue}>
+                  Open Admin Queue
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="account-action"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setHistoryOpen(true);
+                }}
+              >
+                <IonIcon icon={timeOutline} />
+                <span>History</span>
+              </button>
+              <button type="button" className="account-action logout" onClick={() => void logout()}>
+                <IonIcon icon={logOutOutline} />
+                <span>Log Out</span>
+              </button>
+            </div>
+          </IonPopover>
+          <IonModal isOpen={historyOpen} onDidDismiss={() => setHistoryOpen(false)} className="history-modal">
+            <div className="history-overlay">
+              <div className="report-header">
+                <strong>Submission History</strong>
+                <button type="button" className="report-close" onClick={() => setHistoryOpen(false)} aria-label="Close history">
+                  <IonIcon icon={close} />
+                </button>
+              </div>
+              <div className="history-actions">
+                <button type="button" className="account-action" onClick={() => void loadHistory()} disabled={historyLoading}>
+                  {historyLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+              {historyError ? <p className="auth-error">{historyError}</p> : null}
+              {!historyLoading && historyItems.length === 0 ? <p className="auth-info">No saved submissions yet.</p> : null}
+              <div className="history-list">
+                {historyItems.map((item) => (
+                  <button key={item.applicationId} type="button" className="history-item" onClick={() => void openHistoryDetail(item.applicationId)}>
+                    <div className="history-item-top">
+                      <strong>{item.summary ? item.summary.toUpperCase() : item.status.toUpperCase()}</strong>
+                      <span className={`sync-badge sync-${item.syncState}`}>{item.syncState}</span>
+                    </div>
+                    <div className="history-item-meta">
+                      <span>{new Date(item.updatedAt).toLocaleString()}</span>
+                      <span>{item.imageCount} image(s)</span>
+                      <span>{typeof item.confidence === "number" ? `${Math.round(item.confidence * 100)}% confidence` : "No confidence"}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </IonModal>
+          <IonModal isOpen={historyDetailOpen} onDidDismiss={() => setHistoryDetailOpen(false)} className="history-modal">
+            <div className="history-overlay">
+              <div className="report-header">
+                <strong>Submission Detail</strong>
+                <button type="button" className="report-close" onClick={() => setHistoryDetailOpen(false)} aria-label="Close history detail">
+                  <IonIcon icon={close} />
+                </button>
+              </div>
+              {historyDetailLoading ? <p className="auth-info">Loading history detail...</p> : null}
+              {historyDetail ? (
+                <div className="history-detail">
+                  <div className="history-item-top">
+                    <strong>{historyDetail.application.status.toUpperCase()}</strong>
+                    <span className={`sync-badge sync-${historyDetail.application.syncState}`}>{historyDetail.application.syncState}</span>
+                  </div>
+                  <p className="auth-info">{new Date(historyDetail.application.updatedAt).toLocaleString()}</p>
+                  <div className="history-images">
+                    {historyDetail.images.map((image) => (
+                      <div key={image.imageId} className="history-image-link">
+                        <img src={image.thumbSrc ?? `${apiBase}${image.thumbUrl}`} alt={`${image.role} ${image.index}`} />
+                        <span>{image.role} {image.index + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="history-checks">
+                    {(historyDetail.report.checks ?? []).map((check) => (
+                      <div key={check.checkId} className={`history-check check-${check.status}`}>
+                        <strong>{check.label}</strong>
+                        <p>{check.evidenceText || check.failureReason || "No details provided."}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </IonModal>
+          <IonModal isOpen={authModalOpen} onDidDismiss={() => setAuthModalOpen(false)} backdropDismiss={!authBusy} className="auth-modal">
+            <div className="auth-overlay">
+              <div className="auth-header">
+                <strong>Sign In</strong>
+                <button type="button" className="report-close" disabled={authBusy} onClick={() => setAuthModalOpen(false)} aria-label="Close sign in">
+                  <IonIcon icon={close} />
+                </button>
+              </div>
+              <label htmlFor="auth-email">Email</label>
+              <input
+                id="auth-email"
+                className="auth-input"
+                type="email"
+                value={authEmail}
+                onChange={(event) => setAuthEmail(event.currentTarget.value)}
+                disabled={authBusy}
+                autoCapitalize="none"
+                autoComplete="email"
+                placeholder="you@example.com"
+              />
+              <IonButton className="auth-btn" onClick={() => void requestOtp()} disabled={authBusy || !authEmail.trim()}>
+                Request OTP
+              </IonButton>
+              <IonButton
+                className="auth-btn"
+                fill="outline"
+                onClick={() => {
+                  window.location.href = `${apiBase}/register`;
+                }}
+                disabled={authBusy}
+              >
+                Create Account
+              </IonButton>
+              <label htmlFor="auth-code">One-Time Code</label>
+              <input
+                id="auth-code"
+                className="auth-input"
+                type="text"
+                value={authCode}
+                onChange={(event) => setAuthCode(event.currentTarget.value)}
+                disabled={authBusy}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+              />
+              <IonButton className="auth-btn verify" onClick={() => void verifyOtp()} disabled={authBusy || !authEmail.trim() || !authCode.trim()}>
+                Verify & Sign In
+              </IonButton>
+              {authError ? <p className="auth-error">{authError}</p> : null}
+              {authInfo ? <p className="auth-info">{authInfo}</p> : null}
+            </div>
+          </IonModal>
           <IonModal
             isOpen={reportVisible && Boolean(result)}
             onDidDismiss={() => setReportVisible(false)}

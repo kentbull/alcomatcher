@@ -24,8 +24,21 @@ function cookieTokenFromRequest(req: Request): string | null {
 
 export function attachAuthUser(req: Request, _res: Response, next: NextFunction) {
   const token = bearerTokenFromRequest(req) ?? cookieTokenFromRequest(req);
-  req.authUser = token ? authService.verifyToken(token) ?? undefined : undefined;
-  next();
+  if (!token) {
+    req.authUser = undefined;
+    next();
+    return;
+  }
+  void authService
+    .resolveAuthUserFromToken(token)
+    .then((authUser) => {
+      req.authUser = authUser ?? undefined;
+      next();
+    })
+    .catch(() => {
+      req.authUser = undefined;
+      next();
+    });
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {

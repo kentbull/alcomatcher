@@ -13,6 +13,13 @@ function requireManagerHtml(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+function requireAuthHtml(req: Request, res: Response, next: NextFunction) {
+  if (!req.authUser) {
+    return res.status(401).type("html").send("<h1>401 Unauthorized</h1><p>Sign in to access this page.</p>");
+  }
+  next();
+}
+
 siteRouter.get("/", (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
@@ -148,6 +155,7 @@ siteRouter.get("/", (_req, res) => {
         <a class="btn btn-primary" href="/scanner">Open Scanner</a>
         <a class="btn btn-secondary" href="/login">Sign In</a>
         <a class="btn btn-secondary" href="/admin/queue">Open Admin Queue</a>
+        <a class="btn btn-secondary" href="/admin/users">User Management</a>
         <a class="btn btn-secondary" href="/admin/batches">Batch Drill-Down</a>
         <a class="btn btn-secondary" href="/admin/dashboard">KPI Dashboard</a>
         <a class="btn btn-secondary" href="/health">System Health</a>
@@ -173,7 +181,9 @@ siteRouter.get("/", (_req, res) => {
 </html>`);
 });
 
-siteRouter.get("/login", (_req, res) => {
+siteRouter.get("/login", (req, res) => {
+  const prefilledEmail = typeof req.query.email === "string" ? req.query.email : "manager@alcomatcher.com";
+  const verifiedBanner = req.query.verified === "1";
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -221,6 +231,14 @@ siteRouter.get("/login", (_req, res) => {
       .primary { background: linear-gradient(180deg, #e0b56e, #c89242); color: #1e110c; }
       .muted { background: rgba(25, 15, 10, 0.34); color: #ffefcf; }
       .status { margin-top: 12px; min-height: 20px; }
+      .banner {
+        margin-bottom: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(224, 201, 154, 0.35);
+        background: rgba(51, 34, 23, 0.48);
+        color: #ffe7bc;
+      }
       .code { margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       a { color: #ffdfab; }
     </style>
@@ -228,9 +246,10 @@ siteRouter.get("/login", (_req, res) => {
   <body>
     <main class="card">
       <h1>Sign In</h1>
+      ${verifiedBanner ? `<p class="banner">Email verified. Request OTP to sign in.</p>` : ""}
       <p>Use your compliance role email and OTP code.</p>
       <label for="email">Email</label>
-      <input id="email" type="email" autocomplete="email" value="manager@alcomatcher.com" />
+      <input id="email" type="email" autocomplete="email" value="${prefilledEmail.replace(/"/g, "&quot;")}" />
       <div class="row">
         <button class="muted" id="requestBtn" type="button">Request OTP</button>
       </div>
@@ -238,6 +257,7 @@ siteRouter.get("/login", (_req, res) => {
       <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" />
       <div class="row">
         <button class="primary" id="verifyBtn" type="button">Verify & Sign In</button>
+        <a href="/register">Create Account</a>
         <a href="/">Back Home</a>
       </div>
       <div class="status" id="status"></div>
@@ -258,7 +278,9 @@ siteRouter.get("/login", (_req, res) => {
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-          statusEl.textContent = "OTP request failed.";
+          statusEl.textContent = payload?.error === "email_not_verified"
+            ? "Email not verified yet. Check your inbox for verification link."
+            : "OTP request failed.";
           return;
         }
         statusEl.textContent = "OTP requested. Check your channel.";
@@ -282,6 +304,93 @@ siteRouter.get("/login", (_req, res) => {
         statusEl.textContent = "Signed in.";
         const role = payload?.user?.role;
         window.location.href = role === "compliance_manager" ? "/admin/queue" : "/scanner";
+      });
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/register", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Register</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+        background: linear-gradient(165deg, #6f4f37 0%, #5a3c2d 36%, #3f2d24 72%, #2f211a 100%);
+        color: #f6e7cf;
+      }
+      .card {
+        width: min(92vw, 430px);
+        background: rgba(22, 14, 10, 0.55);
+        border: 1px solid rgba(236, 204, 151, 0.22);
+        border-radius: 14px;
+        padding: 18px;
+      }
+      h1 { margin: 0 0 10px; }
+      p { margin: 0 0 12px; opacity: 0.95; }
+      label { display: block; margin: 10px 0 6px; font-weight: 600; }
+      input {
+        width: 100%;
+        min-height: 42px;
+        border-radius: 10px;
+        border: 1px solid rgba(236, 204, 151, 0.32);
+        background: rgba(255, 248, 232, 0.94);
+        color: #2f1c14;
+        padding: 8px 10px;
+      }
+      .row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+      button {
+        min-height: 42px;
+        border-radius: 10px;
+        border: 1px solid rgba(242, 216, 172, 0.2);
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary { background: linear-gradient(180deg, #e0b56e, #c89242); color: #1e110c; }
+      .status { margin-top: 12px; min-height: 20px; }
+      a { color: #ffdfab; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <h1>Create Account</h1>
+      <p>Register with email verification. After verifying your link, use OTP login.</p>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@example.com" />
+      <div class="row">
+        <button class="primary" id="registerBtn" type="button">Send Verification Link</button>
+        <a href="/login">Back to Login</a>
+      </div>
+      <div class="status" id="status"></div>
+    </main>
+    <script>
+      const emailEl = document.getElementById("email");
+      const statusEl = document.getElementById("status");
+      document.getElementById("registerBtn").addEventListener("click", async () => {
+        statusEl.textContent = "Requesting verification link...";
+        const response = await fetch("/api/auth/register/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: emailEl.value.trim() })
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          statusEl.textContent = payload?.error === "rate_limited" ? "Too many attempts, please retry shortly." : "Unable to register right now.";
+          return;
+        }
+        statusEl.textContent = "Verification link sent. Check your email inbox.";
+        if (payload?.debugVerifyUrl) {
+          statusEl.innerHTML = "Verification link sent. <a href='" + payload.debugVerifyUrl + "'>Open debug verification link</a>";
+        }
       });
     </script>
   </body>
@@ -783,6 +892,126 @@ siteRouter.get("/scanner", (_req, res) => {
   </body>
 </html>`);
 });
+siteRouter.get("/history", requireAuthHtml, (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher History</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+        color: #f5e7cf;
+        background: linear-gradient(165deg, #6f4f37 0%, #5a3c2d 36%, #3f2d24 72%, #2f211a 100%);
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+      .card { background: rgba(22, 14, 10, 0.62); border: 1px solid rgba(236, 204, 151, 0.22); border-radius: 14px; padding: 14px; }
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+      button { min-height: 40px; border-radius: 10px; border: 1px solid rgba(242, 216, 172, 0.2); background: rgba(25, 15, 10, 0.34); color: #ffefcf; padding: 8px 12px; font-weight: 700; }
+      .list { display: grid; gap: 8px; margin-top: 10px; }
+      .item { width: 100%; text-align: left; padding: 10px; border-radius: 10px; border: 1px solid rgba(236, 197, 132, 0.24); background: rgba(255, 246, 228, 0.08); color: #fff0d3; }
+      .meta { font-size: 0.82rem; opacity: 0.9; margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+      .detail { margin-top: 12px; }
+      .images { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; }
+      .images img { width: 100%; border-radius: 10px; border: 1px solid rgba(236, 197, 132, 0.24); }
+      .checks { display: grid; gap: 6px; margin-top: 8px; }
+      .check { padding: 8px; border-radius: 10px; border: 1px solid rgba(236, 197, 132, 0.24); background: rgba(255,255,255,0.05); }
+      .check p { margin: 4px 0 0; font-size: 0.84rem; }
+      .pass { border-color: rgba(89, 178, 117, 0.64); }
+      .fail { border-color: rgba(197, 61, 45, 0.68); }
+      .nav { margin-top: 12px; }
+      .nav a { color: #ffdfab; text-decoration: none; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <div class="row">
+          <h1 style="margin:0">Submission History</h1>
+          <button id="refreshBtn" type="button">Refresh</button>
+        </div>
+        <div id="status" style="margin-top:8px"></div>
+        <div id="historyList" class="list"></div>
+        <div id="detail" class="detail"></div>
+      </section>
+      <p class="nav"><a href="/scanner">Scanner</a> · <a href="/">Home</a></p>
+    </main>
+    <script>
+      const statusEl = document.getElementById("status");
+      const listEl = document.getElementById("historyList");
+      const detailEl = document.getElementById("detail");
+      async function loadHistory() {
+        statusEl.textContent = "Loading history...";
+        listEl.innerHTML = "";
+        detailEl.innerHTML = "";
+        try {
+          const response = await fetch("/api/history?limit=30");
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload?.error || "history_load_failed");
+          const items = Array.isArray(payload?.items) ? payload.items : [];
+          if (items.length === 0) {
+            statusEl.textContent = "No saved submissions yet.";
+            return;
+          }
+          statusEl.textContent = "";
+          listEl.innerHTML = items.map((item) => \`
+            <button class="item" data-app-id="\${item.applicationId}">
+              <strong>\${(item.summary || item.status || "").toUpperCase()}</strong>
+              <div class="meta">
+                <span>\${item.syncState}</span>
+                <span>\${new Date(item.updatedAt).toLocaleString()}</span>
+                <span>\${item.imageCount} image(s)</span>
+              </div>
+            </button>
+          \`).join("");
+          listEl.querySelectorAll("[data-app-id]").forEach((node) => {
+            node.addEventListener("click", async () => {
+              const appId = node.getAttribute("data-app-id");
+              if (!appId) return;
+              await loadDetail(appId);
+            });
+          });
+        } catch (error) {
+          statusEl.textContent = "Failed to load history.";
+        }
+      }
+      async function loadDetail(applicationId) {
+        detailEl.innerHTML = "Loading detail...";
+        try {
+          const response = await fetch("/api/history/" + encodeURIComponent(applicationId));
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload?.error || "history_detail_failed");
+          const checks = payload?.report?.checks || [];
+          const images = payload?.images || [];
+          detailEl.innerHTML = \`
+            <div class="card">
+              <h2 style="margin:0 0 6px">Application \${applicationId}</h2>
+              <div class="meta">
+                <span>\${payload?.application?.status || ""}</span>
+                <span>\${payload?.application?.syncState || ""}</span>
+                <span>\${new Date(payload?.application?.updatedAt || Date.now()).toLocaleString()}</span>
+              </div>
+              <div class="images">
+                \${images.map((image) => \`<a href="\${image.fullUrl}" target="_blank" rel="noreferrer"><img src="\${image.thumbUrl}" alt="\${image.role}" /></a>\`).join("")}
+              </div>
+              <div class="checks">
+                \${checks.map((check) => \`<div class="check \${check.status === "pass" ? "pass" : check.status === "fail" ? "fail" : ""}"><strong>\${check.label}</strong><p>\${check.evidenceText || check.failureReason || "No details"}</p></div>\`).join("")}
+              </div>
+            </div>
+          \`;
+        } catch (error) {
+          detailEl.innerHTML = "Failed to load detail.";
+        }
+      }
+      document.getElementById("refreshBtn").addEventListener("click", () => void loadHistory());
+      void loadHistory();
+    </script>
+  </body>
+</html>`);
+});
+
 siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
@@ -877,6 +1106,7 @@ siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
         <button id="refreshBtn" type="button">Refresh Queue</button>
         <a href="/admin/batches" style="text-decoration:none"><button type="button">Batch Drill-Down</button></a>
         <a href="/admin/dashboard" style="text-decoration:none"><button type="button">Open KPI Dashboard</button></a>
+        <a href="/admin/users" style="text-decoration:none"><button type="button">User Management</button></a>
       </div>
       <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading queue...</span></div>
       <div id="error" class="err"></div>
@@ -1144,7 +1374,7 @@ siteRouter.get("/admin/report/:applicationId", requireManagerHtml, (req, res) =>
           <pre id="rawJson"></pre>
         </details>
       </section>
-      <p class="nav" style="margin-top:12px"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/">Home</a></p>
+      <p class="nav" style="margin-top:12px"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/admin/users">Users</a> · <a href="/">Home</a></p>
     </main>
     <script>
       const appId = document.getElementById("appId").textContent;
@@ -1356,7 +1586,7 @@ siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
           <option value="168">7 days</option>
         </select>
         <button id="refreshBtn" type="button">Refresh KPIs</button>
-        <button id="backfillBtn" type="button">Backfill pending_sync -> synced</button>
+        <button id="backfillBtn" type="button">Backfill terminal pending_sync -> synced</button>
       </div>
       <div id="loading" class="loading"><span class="spinner" aria-hidden="true"></span><span>Loading KPI dashboard...</span></div>
       <div id="error" class="err"></div>
@@ -1365,7 +1595,7 @@ siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
         <summary>Developer Tools</summary>
         <pre id="raw"></pre>
       </details>
-      <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/admin/batches">Batch Drill-Down</a> · <a href="/">Home</a></p>
+      <p class="nav"><a href="/admin/queue">Open Queue</a> · <a href="/admin/batches">Batch Drill-Down</a> · <a href="/admin/users">Users</a> · <a href="/">Home</a></p>
     </main>
     <script>
       const kpiCards = document.getElementById("kpiCards");
@@ -1430,9 +1660,9 @@ siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
       }
 
       async function runBackfill() {
-        const response = await fetch("/api/admin/backfill/sync-state", { method: "POST" });
+        const response = await fetch("/api/admin/backfill/sync-state?scope=terminal_only", { method: "POST" });
         const payload = await response.json();
-        alert("Backfill complete: " + payload.updatedCount + " rows updated");
+        alert("Backfill (" + (payload.scope || "terminal_only") + ") complete: " + payload.updatedCount + " rows updated");
         loadKpis();
       }
 
@@ -1548,7 +1778,7 @@ siteRouter.get("/admin/batches", requireManagerHtml, (_req, res) => {
           </details>
         </article>
       </section>
-      <p class="nav"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/">Home</a></p>
+      <p class="nav"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/admin/users">Users</a> · <a href="/">Home</a></p>
     </main>
     <script>
       const batchSelect = document.getElementById("batchSelect");
@@ -1674,6 +1904,188 @@ siteRouter.get("/admin/batches", requireManagerHtml, (_req, res) => {
         events.addEventListener("batch.progress", scheduleRefresh);
       }
       refreshAll();
+    </script>
+  </body>
+</html>`);
+});
+
+siteRouter.get("/admin/users", requireManagerHtml, (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlcoMatcher Admin Users</title>
+    <style>
+      :root {
+        --wood-900: #2f1c14;
+        --wood-700: #5a3a2a;
+        --wood-500: #7e5b42;
+        --foam: #f6e7cf;
+        --gold: #c08a3c;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+        color: var(--foam);
+        background: linear-gradient(165deg, #6f4f37 0%, #5a3c2d 36%, #3f2d24 72%, #2f211a 100%);
+      }
+      .wrap { max-width: 1100px; margin: 0 auto; padding: 18px; }
+      h1 { margin: 0 0 12px; }
+      .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      select, button {
+        min-height: 40px;
+        border-radius: 10px;
+        border: 1px solid rgba(236, 204, 151, 0.24);
+      }
+      select { padding: 8px 10px; background: #f7efe2; color: #2f1c14; }
+      button { padding: 8px 12px; background: var(--gold); color: #24150d; font-weight: 700; cursor: pointer; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: rgba(22, 14, 10, 0.45);
+        border: 1px solid rgba(236, 204, 151, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      th, td { padding: 10px 8px; border-bottom: 1px solid rgba(236, 204, 151, 0.12); text-align: left; }
+      th { background: rgba(192, 138, 60, 0.25); }
+      .nav a { color: #ffdfab; text-decoration: none; }
+      .status { min-height: 24px; margin: 10px 0; }
+      .small-btn { min-height: 32px; padding: 6px 10px; border-radius: 8px; margin-right: 6px; }
+      .pill { padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(236, 204, 151, 0.3); display: inline-block; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>User Management</h1>
+      <div class="controls">
+        <select id="roleFilter">
+          <option value="">All Roles</option>
+          <option value="compliance_officer">Compliance Officer</option>
+          <option value="compliance_manager">Compliance Manager</option>
+        </select>
+        <select id="verifiedFilter">
+          <option value="">Verified + Unverified</option>
+          <option value="true">Verified</option>
+          <option value="false">Unverified</option>
+        </select>
+        <select id="activeFilter">
+          <option value="">Active + Inactive</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+        <button id="refreshBtn" type="button">Refresh</button>
+      </div>
+      <div id="status" class="status"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Verified</th>
+            <th>Active</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="nav" style="margin-top:12px"><a href="/admin/queue">Queue</a> · <a href="/admin/dashboard">Dashboard</a> · <a href="/admin/batches">Batches</a> · <a href="/">Home</a></p>
+    </main>
+    <script>
+      const rowsEl = document.getElementById("rows");
+      const statusEl = document.getElementById("status");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const roleFilter = document.getElementById("roleFilter");
+      const verifiedFilter = document.getElementById("verifiedFilter");
+      const activeFilter = document.getElementById("activeFilter");
+
+      function esc(value) {
+        return String(value || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function queryUrl() {
+        const params = new URLSearchParams();
+        if (roleFilter.value) params.set("role", roleFilter.value);
+        if (verifiedFilter.value) params.set("verified", verifiedFilter.value);
+        if (activeFilter.value) params.set("active", activeFilter.value);
+        params.set("limit", "100");
+        return "/api/admin/users?" + params.toString();
+      }
+
+      async function mutate(url) {
+        const response = await fetch(url, { method: "POST" });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.error || "request_failed");
+        }
+      }
+
+      async function refreshUsers() {
+        statusEl.textContent = "Loading users...";
+        refreshBtn.disabled = true;
+        try {
+          const response = await fetch(queryUrl());
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload?.error || "users_load_failed");
+          const users = payload?.items || [];
+          if (!users.length) {
+            rowsEl.innerHTML = "<tr><td colspan='6'>No users found.</td></tr>";
+          } else {
+            rowsEl.innerHTML = users.map((user) => {
+              const promoteBtn = user.role === "compliance_officer"
+                ? "<button class='small-btn' data-action='promote' data-id='" + esc(user.userId) + "'>Promote</button>"
+                : "";
+              const activeBtn = user.isActive
+                ? "<button class='small-btn' data-action='deactivate' data-id='" + esc(user.userId) + "'>Deactivate</button>"
+                : "<button class='small-btn' data-action='activate' data-id='" + esc(user.userId) + "'>Activate</button>";
+              return "<tr>" +
+                "<td>" + esc(user.email) + "</td>" +
+                "<td><span class='pill'>" + esc(user.role) + "</span></td>" +
+                "<td>" + (user.emailVerifiedAt ? "Yes" : "No") + "</td>" +
+                "<td>" + (user.isActive ? "Yes" : "No") + "</td>" +
+                "<td>" + esc(new Date(user.createdAt).toLocaleString()) + "</td>" +
+                "<td>" + promoteBtn + activeBtn + "</td>" +
+                "</tr>";
+            }).join("");
+          }
+          statusEl.textContent = "";
+          rowsEl.querySelectorAll("button[data-action]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const action = btn.getAttribute("data-action");
+              const id = btn.getAttribute("data-id");
+              if (!action || !id) return;
+              statusEl.textContent = "Applying " + action + "...";
+              try {
+                if (action === "promote") await mutate("/api/admin/users/" + encodeURIComponent(id) + "/promote");
+                if (action === "activate") await mutate("/api/admin/users/" + encodeURIComponent(id) + "/activate");
+                if (action === "deactivate") await mutate("/api/admin/users/" + encodeURIComponent(id) + "/deactivate");
+                await refreshUsers();
+              } catch (error) {
+                statusEl.textContent = "Action failed: " + (error?.message || "unknown_error");
+              }
+            });
+          });
+        } catch (error) {
+          rowsEl.innerHTML = "<tr><td colspan='6'>Failed to load users.</td></tr>";
+          statusEl.textContent = "Load failed: " + (error?.message || "unknown_error");
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      }
+
+      refreshBtn.addEventListener("click", refreshUsers);
+      roleFilter.addEventListener("change", refreshUsers);
+      verifiedFilter.addEventListener("change", refreshUsers);
+      activeFilter.addEventListener("change", refreshUsers);
+      refreshUsers();
     </script>
   </body>
 </html>`);

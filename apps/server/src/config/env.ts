@@ -14,16 +14,28 @@ const envSchema = z.object({
   JWT_EXPIRES_HOURS: z.coerce.number().default(8),
   OTP_TTL_MINUTES: z.coerce.number().default(10),
   OTP_MAX_ATTEMPTS: z.coerce.number().default(5),
+  OTP_RATE_LIMIT_WINDOW_SEC: z.coerce.number().default(300),
+  OTP_RATE_LIMIT_MAX: z.coerce.number().default(8),
+  OTP_VERIFY_RATE_LIMIT_WINDOW_SEC: z.coerce.number().default(300),
+  OTP_VERIFY_RATE_LIMIT_MAX: z.coerce.number().default(12),
+  REGISTER_RATE_LIMIT_WINDOW_SEC: z.coerce.number().default(300),
+  REGISTER_RATE_LIMIT_MAX: z.coerce.number().default(5),
+  EMAIL_VERIFY_TTL_MINUTES: z.coerce.number().default(30),
+  APP_BASE_URL: z.string().default("http://localhost:3000"),
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().optional(),
+  HISTORY_IMAGE_STORAGE_ROOT: z.string().default("/var/lib/alcomatcher/submissions"),
+  HISTORY_IMAGE_RETENTION_DAYS: z.coerce.number().default(30),
   APPLE_REVIEW_OTP_ENABLED: z
     .string()
     .optional()
-    .transform((value) => value === "true" || value === undefined),
+    .transform((value) => value === "true"),
   APPLE_REVIEW_EMAIL: z.string().default("reviewer@apple.com"),
   APPLE_REVIEW_OTP: z.string().optional(),
   AUTH_DEBUG_OTP: z
     .string()
     .optional()
-    .transform((value) => value === undefined || value === "true"),
+    .transform((value) => value === "true"),
   AUTH_SEED_USERS: z
     .string()
     .default(

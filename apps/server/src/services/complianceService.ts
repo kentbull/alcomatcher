@@ -55,6 +55,19 @@ interface KpiSummary {
   statusCounts: Record<ComplianceApplicationDoc["status"], number>;
 }
 
+type HistoryActor = { userId: string; role: "compliance_officer" | "compliance_manager" };
+
+interface HistoryListItem {
+  applicationId: string;
+  status: ComplianceApplicationDoc["status"];
+  syncState: ComplianceApplicationDoc["syncState"];
+  updatedAt: string;
+  createdByUserId: string | null;
+  summary: ScannerQuickCheckResult["summary"] | null;
+  confidence: number | null;
+  imageCount: number;
+}
+
 /**
  * In-memory state for fast local reads, with Postgres-backed event persistence.
  */
@@ -80,12 +93,20 @@ export class ComplianceService {
       updatedAt: now
     };
 
+    // Persist the application row before writing FK-backed events.
+    await this.persistApplication(doc);
     await this.appendEvent(applicationId, "ApplicationCreated", {
       regulatoryProfile,
       submissionType,
       actorUserId: actorUserId ?? null,
       syncState: doc.syncState
     });
+    if (actorUserId) {
+      await this.appendEvent(applicationId, "OwnershipClaimed", {
+        ownerUserId: actorUserId,
+        reason: "application_created_with_authenticated_actor"
+      });
+    }
     const created = await this.refreshDocFromEvents(doc, { preserveChecks: true });
 
     this.publishStatusChanged(applicationId, created.status, created.syncState, {
@@ -222,6 +243,35 @@ export class ComplianceService {
     return ownerUserId === actor.userId;
   }
 
+  async claimApplicationOwner(applicationId: string, ownerUserId: string): Promise<void> {
+    const existingOwner = await this.getApplicationOwnerUserId(applicationId);
+    if (existingOwner) return;
+
+    await this.appendEvent(applicationId, "OwnershipClaimed", {
+      ownerUserId
+    });
+  }
+
+  async claimApplicationOwnerForActor(
+    applicationId: string,
+    ownerUserId: string
+  ): Promise<"claimed" | "already_owned_by_you" | "already_owned_by_other" | "application_not_found"> {
+    const app = await this.getApplication(applicationId);
+    if (!app) return "application_not_found";
+
+    const existingOwner = await this.getApplicationOwnerUserId(applicationId);
+    if (!existingOwner) {
+      await this.appendEvent(applicationId, "OwnershipClaimed", { ownerUserId });
+      return "claimed";
+    }
+    if (existingOwner === ownerUserId) return "already_owned_by_you";
+    return "already_owned_by_other";
+  }
+
+  async getApplicationOwner(applicationId: string): Promise<string | null> {
+    return this.getApplicationOwnerUserId(applicationId);
+  }
+
   async getApplication(applicationId: string): Promise<ComplianceApplicationDoc | null> {
     let doc = this.docs.get(applicationId);
     if (doc) return doc;
@@ -239,7 +289,7 @@ export class ComplianceService {
         return {
           applicationId: app.applicationId,
           status: projection?.status ?? app.status,
-          syncState: projection?.syncState ?? app.syncState,
+          syncState: app.syncState,
           updatedAt: app.updatedAt,
           projection
         };
@@ -247,6 +297,58 @@ export class ComplianceService {
     );
 
     return status ? queueItems.filter((item) => item.status === status) : queueItems;
+  }
+
+  async listHistoryForActor(
+    actor: HistoryActor,
+    options?: {
+      limit?: number;
+      status?: ComplianceApplicationDoc["status"];
+      syncState?: ComplianceApplicationDoc["syncState"];
+      cursor?: string;
+      createdByUserId?: string;
+    }
+  ): Promise<{ items: HistoryListItem[]; nextCursor: string | null }> {
+    const all = await this.listApplicationsForActor(actor);
+    const withProjection = await Promise.all(
+      all.map(async (app) => {
+        const projection = await this.getProjection(app.applicationId);
+        const ownerUserId = await this.getApplicationOwnerUserId(app.applicationId);
+        return {
+          applicationId: app.applicationId,
+          status: projection?.status ?? app.status,
+          syncState: app.syncState,
+          updatedAt: app.updatedAt,
+          createdByUserId: ownerUserId,
+          summary: projection?.latestQuickCheck?.summary ?? null,
+          confidence: typeof projection?.latestQuickCheck?.confidence === "number" ? projection.latestQuickCheck.confidence : null,
+          imageCount: projection?.latestQuickCheck?.images?.length ?? 0
+        } satisfies HistoryListItem;
+      })
+    );
+
+    const filtered = withProjection
+      .filter((item) => (options?.status ? item.status === options.status : true))
+      .filter((item) => (options?.syncState ? item.syncState === options.syncState : true))
+      .filter((item) => (actor.role === "compliance_manager" && options?.createdByUserId ? item.createdByUserId === options.createdByUserId : true))
+      .sort((a, b) => {
+        const dateDiff = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return a.applicationId.localeCompare(b.applicationId);
+      });
+
+    let startIndex = 0;
+    if (options?.cursor) {
+      const [cursorUpdatedAt, cursorApplicationId] = options.cursor.split("|");
+      const index = filtered.findIndex((item) => item.updatedAt === cursorUpdatedAt && item.applicationId === cursorApplicationId);
+      if (index >= 0) startIndex = index + 1;
+    }
+
+    const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
+    const items = filtered.slice(startIndex, startIndex + limit);
+    const tail = filtered[startIndex + limit];
+    const nextCursor = tail ? `${tail.updatedAt}|${tail.applicationId}` : null;
+    return { items, nextCursor };
   }
 
   async buildComplianceReport(applicationId: string): Promise<ComplianceReport | null> {
@@ -273,9 +375,39 @@ export class ComplianceService {
     };
   }
 
-  async backfillPendingSyncToSynced() {
-    const updatedCount = await eventStore.backfillPendingSyncToSynced();
+  async backfillPendingSyncToSynced(scope: "terminal_only" | "all" = "terminal_only") {
+    const updatedCount = await eventStore.backfillPendingSyncToSynced(scope);
     this.docs.clear();
+    return {
+      scope,
+      updatedCount,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  async backfillMissingOwnershipClaims() {
+    const applications = await this.listApplications();
+    let updatedCount = 0;
+    for (const application of applications) {
+      const events = await this.getEvents(application.applicationId);
+      const hasClaim = events.some((event) => event.eventType === "OwnershipClaimed");
+      if (hasClaim) continue;
+
+      const created = events.find((event) => event.eventType === "ApplicationCreated");
+      const actorUserId = created?.payload?.actorUserId;
+      if (typeof actorUserId !== "string" || actorUserId.length === 0) continue;
+
+      await this.appendEvent(application.applicationId, "OwnershipClaimed", {
+        ownerUserId: actorUserId,
+        reason: "backfill_from_application_created_actor"
+      });
+      const doc = await this.getApplication(application.applicationId);
+      if (doc) {
+        await this.refreshDocFromEvents(doc, { preserveChecks: true });
+      }
+      updatedCount += 1;
+    }
+
     return {
       updatedCount,
       updatedAt: new Date().toISOString()
@@ -417,9 +549,18 @@ export class ComplianceService {
 
   private async getApplicationOwnerUserId(applicationId: string): Promise<string | null> {
     const events = await this.getEvents(applicationId);
-    const created = events.find((entry) => entry.eventType === "ApplicationCreated");
-    const owner = created?.payload?.actorUserId;
-    return typeof owner === "string" && owner.length > 0 ? owner : null;
+    let owner: string | null = null;
+    for (const event of events) {
+      if (event.eventType === "ApplicationCreated") {
+        const fromCreate = event.payload?.actorUserId;
+        if (typeof fromCreate === "string" && fromCreate.length > 0) owner = fromCreate;
+      }
+      if (event.eventType === "OwnershipClaimed") {
+        const claimed = event.payload?.ownerUserId;
+        if (typeof claimed === "string" && claimed.length > 0) owner = claimed;
+      }
+    }
+    return owner;
   }
 
   private async refreshDocFromEvents(doc: ComplianceApplicationDoc, options?: { preserveChecks?: boolean }) {

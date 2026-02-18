@@ -52,7 +52,8 @@ export interface ComplianceEvent {
     | "BatchItemCompleted"
     | "BatchCompleted"
     | "SyncMerged"
-    | "ScannerQuickCheckRecorded";
+    | "ScannerQuickCheckRecorded"
+    | "OwnershipClaimed";
   payload: Record<string, unknown>;
   createdAt: string;
 }

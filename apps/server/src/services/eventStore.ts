@@ -5,6 +5,7 @@ import type { BatchItemAttemptRecord, BatchItemRecord, BatchJobRecord } from "..
 
 export class EventStore {
   private readonly pool: Pool;
+  private submissionSchemaEnsured = false;
 
   constructor() {
     this.pool = new Pool({ connectionString: env.DATABASE_URL });
@@ -463,14 +464,35 @@ export class EventStore {
     }));
   }
 
-  async backfillPendingSyncToSynced(): Promise<number> {
+  async backfillPendingSyncToSynced(scope: "terminal_only" | "all" = "terminal_only"): Promise<number> {
+    if (scope === "all") {
+      const { rowCount } = await this.pool.query(
+        `
+        UPDATE compliance_applications
+        SET sync_state = 'synced',
+            updated_at = NOW()
+        WHERE sync_state = 'pending_sync'
+        `
+      );
+      return rowCount ?? 0;
+    }
+
+    const terminalStatuses: ComplianceApplicationDoc["status"][] = [
+      "matched",
+      "approved",
+      "rejected",
+      "needs_review",
+      "batch_completed"
+    ];
     const { rowCount } = await this.pool.query(
       `
       UPDATE compliance_applications
       SET sync_state = 'synced',
           updated_at = NOW()
       WHERE sync_state = 'pending_sync'
-      `
+        AND current_status = ANY($1::text[])
+      `,
+      [terminalStatuses]
     );
     return rowCount ?? 0;
   }
@@ -582,6 +604,230 @@ export class EventStore {
       stageTimings: row.payload?.stageTimings,
       telemetryQuality: row.payload?.telemetryQuality === "complete" ? "complete" : "partial"
     }));
+  }
+
+  async upsertSubmissionImage(record: {
+    imageId: string;
+    applicationId: string;
+    role: "front" | "back" | "additional";
+    imageIndex: number;
+    mimeType: string;
+    byteSize: number;
+    storagePath: string;
+    thumbStoragePath: string;
+    sha256: string;
+  }): Promise<void> {
+    await this.ensureSubmissionImagesSchema();
+    await this.pool.query(
+      `
+      INSERT INTO submission_images (
+        image_id,
+        application_id,
+        role,
+        image_index,
+        mime_type,
+        byte_size,
+        storage_path,
+        thumb_storage_path,
+        sha256,
+        created_at
+      )
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW())
+      ON CONFLICT (image_id)
+      DO UPDATE SET
+        role = EXCLUDED.role,
+        image_index = EXCLUDED.image_index,
+        mime_type = EXCLUDED.mime_type,
+        byte_size = EXCLUDED.byte_size,
+        storage_path = EXCLUDED.storage_path,
+        thumb_storage_path = EXCLUDED.thumb_storage_path,
+        sha256 = EXCLUDED.sha256
+      `,
+      [
+        record.imageId,
+        record.applicationId,
+        record.role,
+        record.imageIndex,
+        record.mimeType,
+        record.byteSize,
+        record.storagePath,
+        record.thumbStoragePath,
+        record.sha256
+      ]
+    );
+  }
+
+  async listSubmissionImages(applicationId: string): Promise<
+    Array<{
+      imageId: string;
+      applicationId: string;
+      role: "front" | "back" | "additional";
+      imageIndex: number;
+      mimeType: string;
+      byteSize: number;
+      storagePath: string;
+      thumbStoragePath: string;
+      createdAt: string;
+    }>
+  > {
+    await this.ensureSubmissionImagesSchema();
+    const { rows } = await this.pool.query<{
+      image_id: string;
+      application_id: string;
+      role: "front" | "back" | "additional";
+      image_index: number;
+      mime_type: string;
+      byte_size: number;
+      storage_path: string;
+      thumb_storage_path: string;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        image_id,
+        application_id,
+        role,
+        image_index,
+        mime_type,
+        byte_size,
+        storage_path,
+        thumb_storage_path,
+        created_at
+      FROM submission_images
+      WHERE application_id = $1::uuid
+      ORDER BY created_at ASC
+      `,
+      [applicationId]
+    );
+
+    return rows.map((row) => ({
+      imageId: row.image_id,
+      applicationId: row.application_id,
+      role: row.role,
+      imageIndex: row.image_index,
+      mimeType: row.mime_type,
+      byteSize: row.byte_size,
+      storagePath: row.storage_path,
+      thumbStoragePath: row.thumb_storage_path,
+      createdAt: row.created_at.toISOString()
+    }));
+  }
+
+  async getSubmissionImage(applicationId: string, imageId: string): Promise<{
+    imageId: string;
+    applicationId: string;
+    role: "front" | "back" | "additional";
+    imageIndex: number;
+    mimeType: string;
+    byteSize: number;
+    storagePath: string;
+    thumbStoragePath: string;
+    createdAt: string;
+  } | null> {
+    await this.ensureSubmissionImagesSchema();
+    const { rows } = await this.pool.query<{
+      image_id: string;
+      application_id: string;
+      role: "front" | "back" | "additional";
+      image_index: number;
+      mime_type: string;
+      byte_size: number;
+      storage_path: string;
+      thumb_storage_path: string;
+      created_at: Date;
+    }>(
+      `
+      SELECT
+        image_id,
+        application_id,
+        role,
+        image_index,
+        mime_type,
+        byte_size,
+        storage_path,
+        thumb_storage_path,
+        created_at
+      FROM submission_images
+      WHERE application_id = $1::uuid
+        AND image_id = $2::uuid
+      LIMIT 1
+      `,
+      [applicationId, imageId]
+    );
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      imageId: row.image_id,
+      applicationId: row.application_id,
+      role: row.role,
+      imageIndex: row.image_index,
+      mimeType: row.mime_type,
+      byteSize: row.byte_size,
+      storagePath: row.storage_path,
+      thumbStoragePath: row.thumb_storage_path,
+      createdAt: row.created_at.toISOString()
+    };
+  }
+
+  async listExpiredSubmissionImages(retentionDays: number): Promise<
+    Array<{ imageId: string; storagePath: string; thumbStoragePath: string }>
+  > {
+    await this.ensureSubmissionImagesSchema();
+    const { rows } = await this.pool.query<{
+      image_id: string;
+      storage_path: string;
+      thumb_storage_path: string;
+    }>(
+      `
+      SELECT image_id, storage_path, thumb_storage_path
+      FROM submission_images
+      WHERE created_at < NOW() - ($1::text || ' days')::interval
+      ORDER BY created_at ASC
+      LIMIT 2000
+      `,
+      [String(Math.max(1, retentionDays))]
+    );
+    return rows.map((row) => ({
+      imageId: row.image_id,
+      storagePath: row.storage_path,
+      thumbStoragePath: row.thumb_storage_path
+    }));
+  }
+
+  async deleteSubmissionImages(imageIds: string[]): Promise<number> {
+    if (imageIds.length === 0) return 0;
+    await this.ensureSubmissionImagesSchema();
+    const { rowCount } = await this.pool.query(
+      `
+      DELETE FROM submission_images
+      WHERE image_id = ANY($1::uuid[])
+      `,
+      [imageIds]
+    );
+    return rowCount ?? 0;
+  }
+
+  private async ensureSubmissionImagesSchema(): Promise<void> {
+    if (this.submissionSchemaEnsured) return;
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS submission_images (
+        image_id UUID PRIMARY KEY,
+        application_id UUID NOT NULL REFERENCES compliance_applications(application_id),
+        role TEXT NOT NULL,
+        image_index INTEGER NOT NULL,
+        mime_type TEXT NOT NULL,
+        byte_size INTEGER NOT NULL,
+        storage_path TEXT NOT NULL,
+        thumb_storage_path TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_submission_images_application_id_created_at
+        ON submission_images(application_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_submission_images_app_role_index_sha
+        ON submission_images(application_id, role, image_index, sha256);
+    `);
+    this.submissionSchemaEnsured = true;
   }
 }
 

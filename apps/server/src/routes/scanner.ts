@@ -247,7 +247,13 @@ scannerRouter.post("/api/scanner/sessions/:sessionId/finalize", async (req, res)
       const expected = parseExpected(req.body as Record<string, unknown>);
       const stageTimings = parseStageTimings(req.body as Record<string, unknown>);
       const clientSyncMode = req.headers["x-alcomatcher-client-sync"] === "crdt" ? "crdt" : "direct";
-      const finalized = await scannerSessionService.finalizeSession(req.params.sessionId, expected, clientSyncMode, stageTimings);
+      const finalized = await scannerSessionService.finalizeSession(
+        req.params.sessionId,
+        expected,
+        clientSyncMode,
+        stageTimings,
+        req.authUser?.userId
+      );
     if (!finalized) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
     return res.json({
       sessionId: finalized.session.sessionId,

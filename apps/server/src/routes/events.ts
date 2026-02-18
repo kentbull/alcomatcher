@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authService } from "../services/authService.js";
 import { complianceService } from "../services/complianceService.js";
 import { realtimeEventBus, type RealtimeEventEnvelope } from "../services/realtimeEventBus.js";
 
@@ -10,8 +11,9 @@ function writeSseEvent(res: { write: (chunk: string) => void }, event: RealtimeE
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-eventsRouter.get("/api/events/stream", (req, res) => {
-  const authUser = req.authUser;
+eventsRouter.get("/api/events/stream", async (req, res) => {
+  const ticket = typeof req.query.ticket === "string" ? req.query.ticket : undefined;
+  const authUser = req.authUser ?? (ticket ? (await authService.verifySseTicket(ticket)) ?? undefined : undefined);
   const applicationId = typeof req.query.applicationId === "string" ? req.query.applicationId : undefined;
   const batchId = typeof req.query.batchId === "string" ? req.query.batchId : undefined;
   const scopeQuery = req.query.scope;
