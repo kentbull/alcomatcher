@@ -7,7 +7,7 @@ import { Preferences } from "@capacitor/preferences";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import { setupIonicReact } from "@ionic/react";
 import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonPopover, IonText } from "@ionic/react";
-import { add, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline, trashOutline } from "ionicons/icons";
+import { add, arrowForwardOutline, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline, trashOutline } from "ionicons/icons";
 import "@ionic/react/css/core.css";
 import "@ionic/react/css/normalize.css";
 import "@ionic/react/css/structure.css";
@@ -1581,12 +1581,24 @@ function App() {
                 {authInfo ? <p className="preview-warning">{authInfo}</p> : null}
               </IonText>
 
-              {/* Sync Status Indicator */}
-              <SyncStatus
-                isOnline={isOnline}
-                queueState={queueState}
-                onTap={() => setSyncQueueOpen(true)}
-              />
+              {/* Sync Status and Report */}
+              <div className="hero-status-bar">
+                <SyncStatus
+                  isOnline={isOnline}
+                  queueState={queueState}
+                  onTap={() => setSyncQueueOpen(true)}
+                />
+                {result && (
+                  <button
+                    type="button"
+                    className="report-icon-button"
+                    onClick={() => setReportVisible(true)}
+                    aria-label="View Report"
+                  >
+                    <IonIcon icon={receiptOutline} />
+                  </button>
+                )}
+              </div>
 
               {/* Scan Mode Toggle */}
               {!result && (
@@ -1679,15 +1691,18 @@ function App() {
             />
 
             <div className="scanner-actions">
-              {result ? (
+              {scanMode === "batch" && !result ? (
                 <IonButton
-                  className="report-button"
+                  className="batch-next-button"
                   fill="clear"
-                  size="default"
-                  onClick={() => setReportVisible(true)}
+                  onClick={() => {
+                    completeCurrentGroup();
+                    createNewGroup();
+                  }}
+                  disabled={sessionLoading || finalizing || captureBusy || images.length === 0}
                 >
-                  <IonIcon icon={receiptOutline} slot="start" />
-                  Report
+                  <IonIcon icon={arrowForwardOutline} />
+                  <span>Next Label</span>
                 </IonButton>
               ) : (
                 <span />

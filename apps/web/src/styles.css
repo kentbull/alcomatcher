@@ -772,7 +772,61 @@ ion-app {
   }
 }
 
+/* Hero Status Bar */
+.hero-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.report-icon-button {
+  background: rgba(28, 16, 11, 0.4);
+  border: 1px solid rgba(237, 196, 131, 0.3);
+  border-radius: 8px;
+  padding: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  color: var(--cask-gold-soft);
+}
+
+.report-icon-button:hover {
+  background: rgba(28, 16, 11, 0.6);
+  border-color: rgba(237, 196, 131, 0.5);
+}
+
+.report-icon-button ion-icon {
+  font-size: 1.25rem;
+}
+
 /* Batch Scanning Components */
+.batch-next-button {
+  --padding-start: 0.65rem;
+  --padding-end: 0.65rem;
+  --color: #fff0d4;
+  --background: rgba(28, 16, 11, 0.3);
+  --border-radius: 999px;
+  height: 44px;
+  border: 1px solid rgba(237, 196, 131, 0.26);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.batch-next-button ion-icon {
+  font-size: 1rem;
+}
+
+.batch-next-button span {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 .scan-mode-toggle {
   display: flex;
   gap: 0.5rem;
