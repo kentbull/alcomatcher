@@ -1,0 +1,68 @@
+.metrics-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metrics-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.metrics-card-icon {
+  font-size: 2rem;
+  opacity: 0.8;
+}
+
+.metrics-card--success .metrics-card-icon {
+  color: var(--status-pass);
+}
+
+.metrics-card--warning .metrics-card-icon {
+  color: var(--status-review);
+}
+
+.metrics-card--danger .metrics-card-icon {
+  color: var(--status-fail);
+}
+
+.metrics-card-content {
+  flex: 1;
+}
+
+.metrics-card-value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--foam);
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+.metrics-card-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 768px) {
+  .metrics-card {
+    padding: 1rem;
+  }
+
+  .metrics-card-value {
+    font-size: 1.5rem;
+  }
+
+  .metrics-card-label {
+    font-size: 0.8rem;
+  }
+}

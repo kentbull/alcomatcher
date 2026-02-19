@@ -1,0 +1,62 @@
+.admin-dashboard {
+  min-height: 100vh;
+  padding: calc(60px + 2rem) 2rem 2rem;
+  background: var(--admin-bg);
+}
+
+.admin-dashboard-loading,
+.admin-dashboard-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+}
+
+.admin-dashboard-error button {
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--cask-gold);
+  color: var(--wood-dark);
+  border: none;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 3rem;
+}
+
+.recent-applications-section {
+  margin-top: 3rem;
+}
+
+.recent-applications-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .admin-dashboard {
+    padding: calc(60px + 1rem) 1rem 1rem;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .recent-applications-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+}

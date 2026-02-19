@@ -27,6 +27,20 @@ body.app-ready {
   --foam: #f5e7cf;
   --vine: #325239;
   --rust: #9b3f2d;
+
+  /* Admin extensions */
+  --status-pass: #41ab5b;
+  --status-fail: #c44737;
+  --status-review: #dfa33b;
+  --status-pending: #6b7280;
+
+  --admin-bg: linear-gradient(155deg, #6d4e38 0%, #563a2b 42%, #34251c 100%);
+  --admin-card: rgba(25, 16, 12, 0.65);
+  --admin-card-border: rgba(236, 204, 151, 0.25);
+
+  --text-primary: #f5e7cf;
+  --text-secondary: #c9b89a;
+  --text-muted: #8a7d6b;
 }
 
 .scanner-content {
@@ -1753,5 +1767,189 @@ ion-app {
 
   .fab-plus ion-icon {
     font-size: 1.95rem;
+  }
+}
+
+/* ============================================
+   Admin UI Styles
+   ============================================ */
+
+.admin-heading-1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--foam);
+  margin: 0 0 1.5rem 0;
+  letter-spacing: -0.5px;
+}
+
+.admin-heading-2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--cask-gold);
+  margin: 1.5rem 0 1rem 0;
+}
+
+.admin-text-primary {
+  color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.admin-text-secondary {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.admin-text-muted {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.admin-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge--pass {
+  background: rgba(65, 171, 91, 0.2);
+  color: #b8f3c6;
+  border: 1px solid rgba(65, 171, 91, 0.4);
+}
+
+.status-badge--fail {
+  background: rgba(196, 71, 55, 0.2);
+  color: #f5a9a0;
+  border: 1px solid rgba(196, 71, 55, 0.4);
+}
+
+.status-badge--review {
+  background: rgba(223, 163, 59, 0.2);
+  color: #f5d99f;
+  border: 1px solid rgba(223, 163, 59, 0.4);
+}
+
+.status-badge--default {
+  background: rgba(107, 114, 128, 0.2);
+  color: #d1d5db;
+  border: 1px solid rgba(107, 114, 128, 0.4);
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+
+.admin-table th {
+  background: rgba(79, 51, 35, 0.5);
+  color: var(--cask-gold);
+  font-weight: 700;
+  text-align: left;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--admin-card-border);
+  font-size: 0.9rem;
+}
+
+.admin-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(236, 204, 151, 0.1);
+  color: var(--text-primary);
+}
+
+.admin-table tbody tr:hover {
+  background: rgba(192, 138, 60, 0.08);
+  cursor: pointer;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.btn-admin {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+
+.btn-admin--small {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.btn-admin--primary {
+  background: var(--cask-gold);
+  color: var(--wood-dark);
+}
+
+.btn-admin--primary:hover {
+  background: #d49a4a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(192, 138, 60, 0.3);
+}
+
+.btn-admin--danger {
+  background: var(--rust);
+  color: var(--foam);
+}
+
+.btn-admin--danger:hover {
+  background: #b34934;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(155, 63, 45, 0.3);
+}
+
+.btn-admin--secondary {
+  background: transparent;
+  border: 1px solid var(--admin-card-border);
+  color: var(--text-primary);
+}
+
+.btn-admin--secondary:hover {
+  background: rgba(192, 138, 60, 0.1);
+  border-color: var(--cask-gold);
+}
+
+@media (max-width: 768px) {
+  .admin-heading-1 {
+    font-size: 1.5rem;
+  }
+
+  .admin-heading-2 {
+    font-size: 1.25rem;
+  }
+
+  .admin-card {
+    padding: 1rem;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: 8px 12px;
+    font-size: 0.85rem;
   }
 }

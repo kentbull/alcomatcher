@@ -1,0 +1,192 @@
+.admin-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--admin-card);
+  border-bottom: 1px solid var(--admin-card-border);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  padding: 0 env(safe-area-inset-right, 0) 0 env(safe-area-inset-left, 0);
+}
+
+.admin-navbar-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  gap: 2rem;
+}
+
+.admin-navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.admin-navbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.admin-navbar-logo:hover {
+  opacity: 0.8;
+}
+
+.admin-navbar-logo-text {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--cask-gold);
+  letter-spacing: -0.3px;
+}
+
+.admin-navbar-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-nav-link {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.admin-nav-link:hover {
+  background: rgba(192, 138, 60, 0.1);
+  color: var(--text-primary);
+}
+
+.admin-nav-link.active {
+  background: rgba(192, 138, 60, 0.15);
+  color: var(--cask-gold);
+}
+
+.admin-navbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.admin-user-menu {
+  position: relative;
+}
+
+.admin-user-button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--admin-card-border);
+  background: rgba(43, 26, 19, 0.5);
+  color: var(--text-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.admin-user-button:hover {
+  background: rgba(79, 51, 35, 0.5);
+  border-color: var(--cask-gold);
+}
+
+.admin-user-email {
+  font-weight: 600;
+}
+
+.admin-user-arrow {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.admin-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 200px;
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+
+.admin-dropdown-item {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.admin-dropdown-header {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(236, 204, 151, 0.1);
+}
+
+.admin-dropdown-button {
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.admin-dropdown-button:hover {
+  background: rgba(192, 138, 60, 0.1);
+}
+
+.admin-signin-button {
+  padding: 0.5rem 1.5rem;
+  border: 1px solid var(--cask-gold);
+  background: transparent;
+  color: var(--cask-gold);
+  font-size: 0.95rem;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.admin-signin-button:hover {
+  background: var(--cask-gold);
+  color: var(--wood-dark);
+}
+
+@media (max-width: 768px) {
+  .admin-navbar-content {
+    padding: 0 1rem;
+    gap: 1rem;
+  }
+
+  .admin-navbar-left {
+    gap: 1rem;
+  }
+
+  .admin-navbar-logo-text {
+    font-size: 1rem;
+  }
+
+  .admin-nav-link {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+  }
+
+  .admin-user-email {
+    display: none;
+  }
+}
