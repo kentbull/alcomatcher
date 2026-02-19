@@ -2078,11 +2078,12 @@ function App() {
       </IonModal>
 
       {/* Batch Summary Modal */}
-      <IonModal isOpen={batchSummaryOpen} onDidDismiss={() => setBatchSummaryOpen(false)}>
-        <IonContent>
+      <IonModal isOpen={batchSummaryOpen} onDidDismiss={() => setBatchSummaryOpen(false)} className="batch-summary-modal">
+        <IonContent className="batch-summary-content">
           <BatchSummary
             groups={labelGroups}
             totalImages={images.length}
+            images={images}
             onSendBatch={() => {
               // In full implementation, this would send all groups
               setBatchSummaryOpen(false);
