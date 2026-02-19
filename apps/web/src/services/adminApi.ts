@@ -151,7 +151,18 @@ export const adminApi = {
     if (!response.ok) {
       throw new Error(`Failed to fetch application events: ${response.statusText}`);
     }
-    return response.json();
+
+    const data = await response.json();
+
+    // API returns { events: [...] }, extract the array
+    // Defensive check: ensure it's actually an array
+    if (data && Array.isArray(data.events)) {
+      return data.events;
+    }
+
+    // Fallback: return empty array if structure is unexpected
+    console.warn('getApplicationEvents: unexpected response structure', data);
+    return [];
   },
 
   // Image URLs
