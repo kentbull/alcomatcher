@@ -32,6 +32,36 @@ export const AdminListView: React.FC = () => {
     loadApplications();
   }, [currentPage, statusFilter]);
 
+  useEffect(() => {
+    let stream: EventSource | null = null;
+    let disposed = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerReload = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { void loadApplications(); }, 1000);
+    };
+
+    const connect = async () => {
+      try {
+        const ticket = await adminApi.getStreamTicket();
+        if (disposed) return;
+        const url = `/api/events/stream?scope=admin&ticket=${encodeURIComponent(ticket)}`;
+        stream = new EventSource(url);
+        stream.addEventListener("application.status_changed", triggerReload);
+      } catch {
+        // SSE is best-effort
+      }
+    };
+
+    void connect();
+    return () => {
+      disposed = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      stream?.close();
+    };
+  }, []); // mount-only; loadApplications is called imperatively
+
   const loadApplications = async () => {
     try {
       setLoading(true);

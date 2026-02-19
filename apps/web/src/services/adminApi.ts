@@ -206,6 +206,17 @@ export const adminApi = {
     return response.json();
   },
 
+  // SSE Auth Ticket
+  async getStreamTicket(): Promise<string> {
+    const response = await fetch(
+      `${API_BASE}/events/stream-auth-ticket`,
+      getFetchOptions()
+    );
+    if (!response.ok) throw new Error("Failed to get SSE ticket");
+    const data = await response.json();
+    return typeof data.ticket === "string" ? data.ticket : "";
+  },
+
   // Re-scan Image
   async rescanImage(
     applicationId: string,

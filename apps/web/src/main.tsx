@@ -650,6 +650,70 @@ function App() {
   }, [authToken, historyOpen, loadHistory]);
 
   useEffect(() => {
+    if (!historyOpen || !authToken) return;
+    let stream: EventSource | null = null;
+    let disposed = false;
+
+    const onStatusChanged = async (event: MessageEvent) => {
+      try {
+        const envelope = JSON.parse(event.data as string) as {
+          applicationId?: string;
+          data?: { status?: string; statusColor?: string; decision?: string; reviewedBy?: string; reason?: string };
+        };
+        const appId = envelope.applicationId;
+        const data = envelope.data;
+        if (!appId || !data?.status) return;
+
+        setHistoryItems((current) =>
+          current.map((item) =>
+            item.applicationId === appId
+              ? {
+                  ...item,
+                  status: data.status!,
+                  statusColor: (data.statusColor as HistoryItem["statusColor"]) ?? item.statusColor
+                }
+              : item
+          )
+        );
+
+        await queuePendingCrdtCommit(appId, {
+          kind: "reviewer_decision_commit",
+          applicationId: appId,
+          status: data.status,
+          statusColor: data.statusColor ?? null,
+          decision: data.decision ?? null,
+          reviewedBy: data.reviewedBy ?? null,
+          reason: data.reason ?? null,
+          committedAt: new Date().toISOString()
+        });
+      } catch {
+        // Ignore malformed payloads
+      }
+    };
+
+    const connect = async () => {
+      try {
+        const ticketResponse = await apiFetch(`${apiBase}/api/events/stream-auth-ticket`, { method: "GET" }, 1, 350);
+        if (!ticketResponse.ok || disposed) return;
+        const ticketPayload = await ticketResponse.json().catch(() => ({})) as { ticket?: unknown };
+        const ticket = typeof ticketPayload?.ticket === "string" ? ticketPayload.ticket : "";
+        if (disposed) return;
+        const url = `${apiBase}/api/events/stream?scope=mobile${ticket ? `&ticket=${encodeURIComponent(ticket)}` : ""}`;
+        stream = new EventSource(url);
+        stream.addEventListener("application.status_changed", onStatusChanged as unknown as EventListener);
+      } catch {
+        // SSE is best-effort; history still loads via pull on open
+      }
+    };
+
+    void connect();
+    return () => {
+      disposed = true;
+      stream?.close();
+    };
+  }, [historyOpen, authToken, apiBase, apiFetch, queuePendingCrdtCommit, setHistoryItems]);
+
+  useEffect(() => {
     return () => {
       for (const image of historyDetail?.images ?? []) {
         if (image.thumbSrc?.startsWith("blob:")) URL.revokeObjectURL(image.thumbSrc);

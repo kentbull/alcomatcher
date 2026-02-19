@@ -23,6 +23,32 @@ export const AdminDetailView: React.FC = () => {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    let stream: EventSource | null = null;
+    let disposed = false;
+
+    const connect = async () => {
+      try {
+        const ticket = await adminApi.getStreamTicket();
+        if (disposed) return;
+        const url = `/api/events/stream?scope=admin&applicationId=${encodeURIComponent(id)}&ticket=${encodeURIComponent(ticket)}`;
+        stream = new EventSource(url);
+        stream.addEventListener("application.status_changed", () => {
+          void loadApplicationDetail(id);
+        });
+      } catch {
+        // SSE is best-effort; detail view still works via manual refresh
+      }
+    };
+
+    void connect();
+    return () => {
+      disposed = true;
+      stream?.close();
+    };
+  }, [id]);
+
   const loadApplicationDetail = async (applicationId: string) => {
     try {
       setLoading(true);

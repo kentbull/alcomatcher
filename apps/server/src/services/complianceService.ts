@@ -659,6 +659,7 @@ export class ComplianceService {
       data: {
         status,
         syncState,
+        statusColor: labelApplicationStatusColor(status),
         ...(context ?? {})
       }
     });
@@ -677,6 +678,7 @@ export class ComplianceService {
     // Record reviewer override event
     await this.appendEvent(applicationId, "ReviewerOverrideRecorded", {
       decision: "approved",
+      status: "approved",
       reviewedBy,
       notes: notes || "",
       previousStatus: app.status
@@ -713,6 +715,7 @@ export class ComplianceService {
     // Record reviewer override event
     await this.appendEvent(applicationId, "ReviewerOverrideRecorded", {
       decision: "rejected",
+      status: "rejected",
       reviewedBy,
       reason,
       notes: notes || "",
