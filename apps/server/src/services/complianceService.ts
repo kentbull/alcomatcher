@@ -317,12 +317,18 @@ export class ComplianceService {
     const queueItems = await Promise.all(
       paginated.map(async (app) => {
         const projection = await this.getProjection(app.applicationId);
+        const latestQuickCheck = projection?.latestQuickCheck;
+        const extracted = latestQuickCheck?.extracted;
+
         return {
           applicationId: app.applicationId,
           status: projection?.status ?? app.status,
           syncState: app.syncState,
+          confidence: latestQuickCheck?.confidence ?? 0,
+          brandName: extracted?.brandName,
           updatedAt: app.updatedAt,
-          projection
+          createdByUserId: app.createdByUserId,
+          regulatoryProfile: app.regulatoryProfile,
         };
       })
     );

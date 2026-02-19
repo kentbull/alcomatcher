@@ -103,22 +103,42 @@ export const adminApi = {
     const data = await response.json();
 
     // Transform nested API response to flat ApplicationDetail format
+    // Safely extract extracted data from report
+    const extracted = data.report?.extracted || data.report?.latestQuickCheck?.extracted || {};
+    const latestQuickCheck = data.report?.latestQuickCheck || {};
+
+    // Transform images to match expected format
+    const images = Array.isArray(data.images) ? data.images.map((img: any) => ({
+      imageId: img.imageId,
+      role: img.role,
+      imageIndex: img.index || img.imageIndex || 0,
+      qualityStatus: img.qualityStatus,
+      qualityIssues: Array.isArray(img.qualityIssues) ? img.qualityIssues : [],
+      ocrProvider: img.ocrProvider,
+      ocrConfidence: img.ocrConfidence,
+      thumbnailUrl: img.thumbUrl,
+      fullUrl: img.fullUrl,
+    })) : [];
+
+    // Transform checks to match expected format
+    const checks = Array.isArray(data.report?.checks) ? data.report.checks : [];
+
     return {
       applicationId: data.application?.applicationId || applicationId,
       status: data.application?.status || "created",
       syncState: data.application?.syncState || "pending",
-      confidence: data.report?.confidence || 0,
-      brandName: data.report?.brandName,
-      classType: data.report?.classType,
-      abvText: data.report?.abvText,
-      netContents: data.report?.netContents,
-      regulatoryProfile: data.report?.regulatoryProfile,
+      confidence: latestQuickCheck.confidence || 0,
+      brandName: extracted.brandName,
+      classType: extracted.classType,
+      abvText: extracted.abvText,
+      netContents: extracted.netContents,
+      regulatoryProfile: data.report?.regulatoryProfile || extracted.regulatoryProfile,
       createdByUserId: data.application?.createdByUserId,
       lastDecidedByUserId: data.report?.lastDecidedByUserId,
       createdAt: data.application?.createdAt || data.application?.updatedAt || new Date().toISOString(),
       updatedAt: data.application?.updatedAt || new Date().toISOString(),
-      images: data.images || [],
-      checks: data.report?.checks || [],
+      images,
+      checks,
     };
   },
 

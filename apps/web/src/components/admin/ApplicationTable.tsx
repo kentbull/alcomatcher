@@ -117,9 +117,13 @@ export const ApplicationTable: React.FC<ApplicationTableProps> = ({
                 {app.brandName || <span className="text-muted">—</span>}
               </td>
               <td className="confidence-cell">
-                <span className={`confidence-value confidence-${getConfidenceClass(app.confidence)}`}>
-                  {Math.round(app.confidence * 100)}%
-                </span>
+                {app.confidence !== undefined && app.confidence !== null ? (
+                  <span className={`confidence-value confidence-${getConfidenceClass(app.confidence)}`}>
+                    {Math.round(app.confidence * 100)}%
+                  </span>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
               </td>
               <td className="timestamp-cell">{formatTimestamp(app.updatedAt)}</td>
               <td className="action-column" onClick={(e) => e.stopPropagation()}>
