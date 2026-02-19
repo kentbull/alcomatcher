@@ -1690,58 +1690,6 @@ function App() {
               }}
             />
 
-            <div className="scanner-actions">
-              {scanMode === "batch" && !result ? (
-                <IonButton
-                  className="batch-next-button"
-                  fill="clear"
-                  onClick={() => {
-                    completeCurrentGroup();
-                    createNewGroup();
-                  }}
-                  disabled={sessionLoading || finalizing || captureBusy || images.length === 0}
-                >
-                  <IonIcon icon={arrowForwardOutline} />
-                  <span>Next Label</span>
-                </IonButton>
-              ) : (
-                <span />
-              )}
-
-              <IonButton
-                className="fab-plus"
-                fill="clear"
-                onClick={() => void captureNext()}
-                disabled={sessionLoading || finalizing || captureBusy}
-              >
-                <div className="fab-plus-inner">
-                  <IonIcon icon={add} />
-                </div>
-              </IonButton>
-
-              <IonButton
-                className="fab-send"
-                fill="clear"
-                onClick={() => {
-                  if (scanMode === "batch" && labelGroups.length > 0) {
-                    setBatchSummaryOpen(true);
-                  } else {
-                    void finalizeScan();
-                  }
-                }}
-                disabled={!canFinalize || captureBusy}
-              >
-                <IonIcon icon={paperPlaneOutline} />
-                <span>
-                  {finalizing
-                    ? "Sending..."
-                    : scanMode === "batch"
-                      ? "Review"
-                      : "Send"}
-                </span>
-              </IonButton>
-            </div>
-
             <section className="scan-card-dock">
               <div className={`scan-card-stack ${stackExpanded ? "is-expanded" : ""}`}>
                 {sortedImages.map((image, index) => {
@@ -1777,6 +1725,59 @@ function App() {
                 })}
               </div>
             </section>
+
+            <div className="scanner-actions">
+              {/* Centered scan button */}
+              <IonButton
+                className="fab-plus"
+                fill="clear"
+                onClick={() => void captureNext()}
+                disabled={sessionLoading || finalizing || captureBusy}
+              >
+                <div className="fab-plus-inner">
+                  <IonIcon icon={add} />
+                </div>
+              </IonButton>
+
+              {/* Next Label button (left side, batch mode only) */}
+              {scanMode === "batch" && !result && (
+                <IonButton
+                  className="batch-next-button"
+                  fill="clear"
+                  onClick={() => {
+                    completeCurrentGroup();
+                    createNewGroup();
+                  }}
+                  disabled={sessionLoading || finalizing || captureBusy || images.length === 0}
+                >
+                  <IonIcon icon={arrowForwardOutline} />
+                  <span>Next Label</span>
+                </IonButton>
+              )}
+
+              {/* Send button (right side) */}
+              <IonButton
+                className="fab-send"
+                fill="clear"
+                onClick={() => {
+                  if (scanMode === "batch" && labelGroups.length > 0) {
+                    setBatchSummaryOpen(true);
+                  } else {
+                    void finalizeScan();
+                  }
+                }}
+                disabled={!canFinalize || captureBusy}
+              >
+                <IonIcon icon={paperPlaneOutline} />
+                <span>
+                  {finalizing
+                    ? "Sending..."
+                    : scanMode === "batch"
+                      ? "Review"
+                      : "Send"}
+                </span>
+              </IonButton>
+            </div>
 
             {error ? (
               <div className="result-panel result-error">

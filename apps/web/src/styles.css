@@ -339,11 +339,12 @@ ion-app {
 }
 
 .scanner-actions {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: end;
-  gap: 0.48rem;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 92px;
+  padding: 0 1rem;
 }
 
 .report-button {
@@ -364,10 +365,11 @@ ion-app {
 .fab-plus {
   --color: #f8e9cf;
   --background: transparent;
-  justify-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  z-index: 10;
 }
 
 .fab-plus .fab-plus-inner {
@@ -396,9 +398,10 @@ ion-app {
 .fab-send {
   --background: transparent;
   --color: #f6e8cf;
-  justify-self: end;
   display: grid;
   gap: 0.14rem;
+  position: absolute;
+  right: 1rem;
 }
 
 .fab-send ion-icon {
@@ -816,6 +819,8 @@ ion-app {
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
+  position: absolute;
+  left: 1rem;
 }
 
 .batch-next-button ion-icon {
