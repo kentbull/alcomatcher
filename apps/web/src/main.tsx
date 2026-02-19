@@ -20,6 +20,7 @@ import { SyncStatus } from "./components/SyncStatus";
 import { SyncQueueModal } from "./components/SyncQueueModal";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useSyncQueue } from "./hooks/useSyncQueue";
+import { preprocessImageForOCR } from "./utils/imagePreprocessing";
 
 setupIonicReact();
 
@@ -685,25 +686,43 @@ function App() {
 
   const compressImage = useCallback(async (file: File): Promise<File> => {
     if (!file.type.startsWith("image/")) return file;
-    const imageBitmap = await createImageBitmap(file).catch(() => null);
-    if (!imageBitmap) return file;
 
-    const maxSide = 2200;
-    const scale = Math.min(1, maxSide / Math.max(imageBitmap.width, imageBitmap.height));
-    const width = Math.max(1, Math.round(imageBitmap.width * scale));
-    const height = Math.max(1, Math.round(imageBitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) return file;
+    try {
+      // Use enhanced preprocessing for better OCR
+      const processed = await preprocessImageForOCR(file, {
+        maxWidth: 2400,
+        maxHeight: 3200,
+        quality: 0.88,
+        enhanceContrast: true,
+        autoRotate: true
+      });
 
-    context.drawImage(imageBitmap, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((nextBlob) => resolve(nextBlob), "image/jpeg", 0.78);
-    });
-    if (!blob) return file;
-    return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+      // Fallback to original if preprocessing fails
+      return processed;
+    } catch (error) {
+      console.warn("Image preprocessing failed, using original:", error);
+
+      // Fallback to basic compression
+      const imageBitmap = await createImageBitmap(file).catch(() => null);
+      if (!imageBitmap) return file;
+
+      const maxSide = 2200;
+      const scale = Math.min(1, maxSide / Math.max(imageBitmap.width, imageBitmap.height));
+      const width = Math.max(1, Math.round(imageBitmap.width * scale));
+      const height = Math.max(1, Math.round(imageBitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) return file;
+
+      context.drawImage(imageBitmap, 0, 0, width, height);
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((nextBlob) => resolve(nextBlob), "image/jpeg", 0.78);
+      });
+      if (!blob) return file;
+      return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+    }
   }, []);
 
   const createSession = useCallback(async (): Promise<{ sessionId: string; applicationId: string } | null> => {
@@ -978,7 +997,10 @@ function App() {
           x: 0,
           y: 0,
           width: window.screen.width,
-          height: window.screen.height
+          height: window.screen.height,
+          enableHighResolution: true,
+          enableZoom: false,
+          lockAndroidOrientation: true
         });
       },
       stopPreview: async () => {
@@ -987,7 +1009,8 @@ function App() {
         await CameraPreview.stop();
       },
       captureFrame: async (role: Role) => {
-        const result = await CameraPreview.capture({ quality: 88 });
+        // Capture with high quality for OCR
+        const result = await CameraPreview.capture({ quality: 95 });
         if (!result?.value) throw new Error("capture_empty");
         return base64ToFile(result.value, `${role}-${Date.now()}.jpg`, "image/jpeg");
       }
