@@ -1,0 +1,79 @@
+.compliance-checks-wrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+
+.compliance-checks-table {
+  width: 100%;
+  min-width: 700px;
+}
+
+.compliance-checks-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 12px;
+}
+
+.check-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.check-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.check-status--pass {
+  background: rgba(65, 171, 91, 0.2);
+  color: #b8f3c6;
+  border: 1px solid rgba(65, 171, 91, 0.4);
+}
+
+.check-status--fail {
+  background: rgba(196, 71, 55, 0.2);
+  color: #f5a9a0;
+  border: 1px solid rgba(196, 71, 55, 0.4);
+}
+
+.check-status--not_evaluable {
+  background: rgba(223, 163, 59, 0.2);
+  color: #f5d99f;
+  border: 1px solid rgba(223, 163, 59, 0.4);
+}
+
+.check-evidence {
+  max-width: 300px;
+}
+
+.evidence-text {
+  color: var(--text-secondary);
+  font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code", monospace;
+  font-size: 0.85rem;
+  cursor: help;
+}
+
+.check-rule {
+  color: var(--cask-gold);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .compliance-checks-table {
+    min-width: 100%;
+    font-size: 0.85rem;
+  }
+
+  .check-evidence {
+    max-width: 200px;
+  }
+}

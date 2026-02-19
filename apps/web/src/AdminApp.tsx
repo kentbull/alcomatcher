@@ -1,9 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AdminNavbar } from "./components/admin/AdminNavbar";
-import { AdminDashboard } from "./pages/admin/AdminDashboard";
-import { AdminListView } from "./pages/admin/AdminListView";
+import { ErrorBoundary } from "./components/admin/ErrorBoundary";
 import "./styles.css";
+
+// Code splitting: Lazy load admin pages
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard").then(m => ({ default: m.AdminDashboard })));
+const AdminListView = lazy(() => import("./pages/admin/AdminListView").then(m => ({ default: m.AdminListView })));
+const AdminDetailView = lazy(() => import("./pages/admin/AdminDetailView").then(m => ({ default: m.AdminDetailView })));
 
 interface AuthUser {
   userId: string;
@@ -76,15 +80,30 @@ export const AdminApp: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <div style={{ minHeight: "100vh" }}>
-        <AdminNavbar
-          isAuthenticated={isAuthenticated}
-          userEmail={authUser?.email}
-          userRole={authUser?.role}
-          onSignOut={handleSignOut}
-        />
+      <ErrorBoundary>
+        <div style={{ minHeight: "100vh" }}>
+          <AdminNavbar
+            isAuthenticated={isAuthenticated}
+            userEmail={authUser?.email}
+            userRole={authUser?.role}
+            onSignOut={handleSignOut}
+          />
 
-        <Routes>
+          <Suspense
+            fallback={
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: "50vh",
+                color: "var(--text-primary)",
+                fontSize: "1.1rem",
+              }}>
+                Loading...
+              </div>
+            }
+          >
+            <Routes>
           <Route
             path="/admin"
             element={
@@ -109,14 +128,7 @@ export const AdminApp: React.FC = () => {
             path="/admin/applications/:id"
             element={
               isAuthenticated && isManager ? (
-                <div style={{
-                  padding: "calc(60px + 2rem) 2rem 2rem",
-                  background: "var(--admin-bg)",
-                  minHeight: "100vh",
-                  color: "var(--text-primary)",
-                }}>
-                  Application detail (coming soon in Phase 3)
-                </div>
+                <AdminDetailView />
               ) : (
                 <Navigate to="/login" replace />
               )
@@ -144,8 +156,10 @@ export const AdminApp: React.FC = () => {
             }
           />
           <Route path="*" element={<Navigate to="/admin" replace />} />
-        </Routes>
-      </div>
+            </Routes>
+          </Suspense>
+        </div>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 };

@@ -313,3 +313,100 @@ applicationRouter.post("/api/admin/backfill/ownership", async (_req, res) => {
     ...result
   });
 });
+
+// Phase 4 & 5: Admin actions (approve, reject, rescan)
+applicationRouter.post("/api/admin/applications/:applicationId/approve", async (req, res) => {
+  const { applicationId } = req.params;
+  const { notes, reviewedBy } = req.body;
+
+  if (!req.authUser) {
+    return res.status(401).json({ error: "auth_required" });
+  }
+
+  try {
+    const result = await complianceService.approveApplication(
+      applicationId,
+      req.authUser.userId,
+      notes
+    );
+
+    return res.json({
+      applicationId,
+      status: "approved",
+      updatedAt: new Date().toISOString(),
+      reviewedBy: req.authUser.userId,
+      ...result
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: "approval_failed",
+      detail: error instanceof Error ? error.message : "unknown_error"
+    });
+  }
+});
+
+applicationRouter.post("/api/admin/applications/:applicationId/reject", async (req, res) => {
+  const { applicationId } = req.params;
+  const { reason, notes } = req.body;
+
+  if (!req.authUser) {
+    return res.status(401).json({ error: "auth_required" });
+  }
+
+  if (!reason || typeof reason !== "string") {
+    return res.status(400).json({ error: "reason_required" });
+  }
+
+  try {
+    const result = await complianceService.rejectApplication(
+      applicationId,
+      req.authUser.userId,
+      reason,
+      notes
+    );
+
+    return res.json({
+      applicationId,
+      status: "rejected",
+      updatedAt: new Date().toISOString(),
+      reviewedBy: req.authUser.userId,
+      reason,
+      ...result
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: "rejection_failed",
+      detail: error instanceof Error ? error.message : "unknown_error"
+    });
+  }
+});
+
+applicationRouter.post("/api/admin/applications/:applicationId/images/:imageId/rescan", async (req, res) => {
+  const { applicationId, imageId } = req.params;
+  const { reason } = req.body;
+
+  if (!req.authUser) {
+    return res.status(401).json({ error: "auth_required" });
+  }
+
+  const validReasons = ["poor_quality", "manual_review", "ocr_error"];
+  if (!reason || !validReasons.includes(reason)) {
+    return res.status(400).json({ error: "invalid_reason", validReasons });
+  }
+
+  try {
+    // For now, return a placeholder response
+    // Full implementation will be added when scannerService.processImageRescan is implemented
+    return res.json({
+      imageId,
+      status: "rescan_queued",
+      queuedAt: new Date().toISOString(),
+      message: "Re-scan functionality will be fully implemented in scanner service"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      error: "rescan_failed",
+      detail: error instanceof Error ? error.message : "unknown_error"
+    });
+  }
+});

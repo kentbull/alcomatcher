@@ -638,6 +638,73 @@ export class ComplianceService {
       }
     });
   }
+
+  async approveApplication(
+    applicationId: string,
+    reviewedBy: string,
+    notes?: string
+  ): Promise<{ success: boolean }> {
+    const app = await this.getApplication(applicationId);
+    if (!app) {
+      throw new Error("application_not_found");
+    }
+
+    await eventStore.appendEvent({
+      eventId: randomUUID(),
+      applicationId,
+      eventType: "ReviewerOverrideRecorded",
+      payload: {
+        decision: "approved",
+        reviewedBy,
+        notes: notes || "",
+        previousStatus: app.status
+      },
+      createdAt: new Date().toISOString()
+    });
+
+    await this.updateApplicationStatus(applicationId, "approved", { reviewedBy });
+    await this.emitStatusChangeEvent(applicationId, "approved", app.syncState, {
+      reviewedBy,
+      decision: "approved"
+    });
+
+    return { success: true };
+  }
+
+  async rejectApplication(
+    applicationId: string,
+    reviewedBy: string,
+    reason: string,
+    notes?: string
+  ): Promise<{ success: boolean }> {
+    const app = await this.getApplication(applicationId);
+    if (!app) {
+      throw new Error("application_not_found");
+    }
+
+    await eventStore.appendEvent({
+      eventId: randomUUID(),
+      applicationId,
+      eventType: "ReviewerOverrideRecorded",
+      payload: {
+        decision: "rejected",
+        reviewedBy,
+        reason,
+        notes: notes || "",
+        previousStatus: app.status
+      },
+      createdAt: new Date().toISOString()
+    });
+
+    await this.updateApplicationStatus(applicationId, "rejected", { reviewedBy, reason });
+    await this.emitStatusChangeEvent(applicationId, "rejected", app.syncState, {
+      reviewedBy,
+      decision: "rejected",
+      reason
+    });
+
+    return { success: true };
+  }
 }
 
 export const complianceService = new ComplianceService();

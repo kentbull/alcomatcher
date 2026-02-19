@@ -1,0 +1,93 @@
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.metadata-card {
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s;
+}
+
+.metadata-card:hover {
+  border-color: var(--cask-gold);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.metadata-card--wide {
+  grid-column: span 2;
+}
+
+.metadata-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.metadata-value {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.metadata-value--large {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.metadata-value--mono {
+  font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code", monospace;
+  font-size: 0.85rem;
+  color: var(--cask-gold-soft);
+}
+
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.sync-badge--synced {
+  background: rgba(65, 171, 91, 0.2);
+  color: #b8f3c6;
+  border: 1px solid rgba(65, 171, 91, 0.4);
+}
+
+.sync-badge--pending {
+  background: rgba(223, 163, 59, 0.2);
+  color: #f5d99f;
+  border: 1px solid rgba(223, 163, 59, 0.4);
+}
+
+.sync-badge--sync_failed {
+  background: rgba(196, 71, 55, 0.2);
+  color: #f5a9a0;
+  border: 1px solid rgba(196, 71, 55, 0.4);
+}
+
+@media (max-width: 768px) {
+  .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-card--wide {
+    grid-column: span 1;
+  }
+
+  .metadata-value--large {
+    font-size: 1.25rem;
+  }
+}
