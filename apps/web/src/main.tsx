@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { App as CapApp } from "@capacitor/app";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import { setupIonicReact } from "@ionic/react";
 import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonPopover, IonText } from "@ionic/react";
-import { add, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline } from "ionicons/icons";
+import { add, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline, trashOutline } from "ionicons/icons";
 import "@ionic/react/css/core.css";
 import "@ionic/react/css/normalize.css";
 import "@ionic/react/css/structure.css";
 import "@ionic/react/css/typography.css";
 import "./styles.css";
+import type { ProcessingStage, ScannerStageId } from "./types/processingStage";
+import { SCANNER_STAGES } from "./types/processingStage";
+import { LoadingStages } from "./components/LoadingStages";
 
 setupIonicReact();
 
@@ -20,6 +24,7 @@ type UploadState = "queued" | "uploading" | "processing" | "ready" | "failed";
 type CapturePhase = "front" | "back" | "additional";
 type CaptureMode = "preview" | "modal";
 type UserRole = "compliance_officer" | "compliance_manager";
+type AuthMode = "sign_in" | "register";
 
 interface ScannerCheck {
   id: string;
@@ -266,6 +271,7 @@ function App() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<FinalizeResult | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("sign_in");
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -282,6 +288,14 @@ function App() {
   const [historyDetail, setHistoryDetail] = useState<HistoryDetail | null>(null);
   const [historyDetailOpen, setHistoryDetailOpen] = useState(false);
   const [historyDetailLoading, setHistoryDetailLoading] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteInfo, setDeleteInfo] = useState("");
+  const [deleteOtpCode, setDeleteOtpCode] = useState("");
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
+  const [processingStages, setProcessingStages] = useState<ProcessingStage[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
 
   const frontInputRef = useRef<HTMLInputElement | null>(null);
   const backInputRef = useRef<HTMLInputElement | null>(null);
@@ -565,6 +579,29 @@ function App() {
   }, [authUser]);
 
   useEffect(() => {
+    const listenerPromise = CapApp.addListener("appUrlOpen", (event) => {
+      try {
+        const url = new URL(event.url);
+        // alcomatcher://verify?email=...
+        if (url.protocol === "alcomatcher:" && url.host === "verify") {
+          const email = url.searchParams.get("email") ?? "";
+          if (email) {
+            setAuthEmail(email);
+            setAuthMode("register");
+            setAuthInfo("Email verified! Enter your OTP to complete sign-in.");
+            setAuthModalOpen(true);
+          }
+        }
+      } catch {
+        // malformed URL — ignore
+      }
+    });
+    return () => {
+      void listenerPromise.then((h) => h.remove());
+    };
+  }, []); // no deps — setters are stable
+
+  useEffect(() => {
     if (!historyOpen || !authToken) return;
     void loadHistory();
   }, [authToken, historyOpen, loadHistory]);
@@ -716,6 +753,33 @@ function App() {
     }
   }, [apiBase, authEmail]);
 
+  const requestRegistration = useCallback(async () => {
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthInfo("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/register/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail.trim(), mobile: Capacitor.isNativePlatform() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === "string" ? payload.error : "registration_request_failed");
+      }
+      setAuthInfo("Verification link sent. Check your email. After verifying, return and request OTP.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "registration_request_failed");
+      if (message.includes("rate_limited")) {
+        setAuthError("Too many registration attempts. Please wait a moment and retry.");
+      } else {
+        setAuthError(formatNetworkError(err, "Create account"));
+      }
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [apiBase, authEmail]);
+
   const verifyOtp = useCallback(async () => {
     setAuthBusy(true);
     setAuthError("");
@@ -783,6 +847,75 @@ function App() {
       await Promise.all([Preferences.remove({ key: AUTH_TOKEN_KEY }), Preferences.remove({ key: AUTH_USER_KEY })]);
     }
   }, [apiBase, authToken]);
+
+  const requestDeleteOtp = useCallback(async () => {
+    if (!authUser?.email) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    setDeleteInfo("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/otp/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authUser.email })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "otp_request_failed");
+      setDeleteInfo(payload?.status === "queued" ? "OTP queued. Delivery retry is in progress." : "OTP sent. Enter it to confirm deletion.");
+      if (typeof payload?.debugCode === "string" && payload.debugCode.length > 0) {
+        setDeleteOtpCode(payload.debugCode);
+      }
+    } catch (err) {
+      setDeleteError(formatNetworkError(err, "Request delete OTP"));
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [apiBase, authUser?.email]);
+
+  const deleteAccount = useCallback(async () => {
+    if (!authUser) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    setDeleteInfo("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/account/delete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          otpCode: deleteOtpCode.trim(),
+          confirmationText: deleteConfirmationText.trim()
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === "string" ? payload.error : "account_delete_failed");
+      }
+      setDeleteInfo("Account deleted.");
+      setDeleteAccountOpen(false);
+      setAccountMenuOpen(false);
+      setAuthToken("");
+      setAuthUser(null);
+      setDeleteOtpCode("");
+      setDeleteConfirmationText("");
+      await Promise.all([Preferences.remove({ key: AUTH_TOKEN_KEY }), Preferences.remove({ key: AUTH_USER_KEY })]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err ?? "account_delete_failed");
+      if (message.includes("last_manager_cannot_delete")) {
+        setDeleteError("You are the last active manager. Promote another manager before deleting this account.");
+      } else if (message.includes("invalid_confirmation")) {
+        setDeleteError('Type DELETE exactly to confirm account deletion.');
+      } else if (message.includes("otp_invalid_or_expired")) {
+        setDeleteError("OTP is invalid or expired. Request a new one.");
+      } else {
+        setDeleteError(formatNetworkError(err, "Delete account"));
+      }
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [apiBase, authToken, authUser, deleteConfirmationText, deleteOtpCode]);
 
   const openAdminQueue = useCallback(() => {
     setAccountMenuOpen(false);
@@ -927,6 +1060,38 @@ function App() {
       void stopPreviewGuarded("unmount");
     };
   }, [startPreviewGuarded, stopPreviewGuarded]);
+
+  // Processing stages management
+  const initProcessingStages = useCallback((stageIds: ScannerStageId[]) => {
+    const stages: ProcessingStage[] = stageIds.map((id, index) => ({
+      ...SCANNER_STAGES[id],
+      status: index === 0 ? "active" : "pending"
+    }));
+    setProcessingStages(stages);
+  }, []);
+
+  const updateStage = useCallback((stageId: string, updates: Partial<ProcessingStage>) => {
+    setProcessingStages((current) =>
+      current.map((stage) => (stage.id === stageId ? { ...stage, ...updates } : stage))
+    );
+  }, []);
+
+  const completeStage = useCallback((stageId: string) => {
+    setProcessingStages((current) => {
+      const stageIndex = current.findIndex((s) => s.id === stageId);
+      if (stageIndex === -1) return current;
+
+      return current.map((stage, index) => {
+        if (stage.id === stageId) {
+          return { ...stage, status: "completed" as const, progress: 100 };
+        }
+        if (index === stageIndex + 1) {
+          return { ...stage, status: "active" as const };
+        }
+        return stage;
+      });
+    });
+  }, []);
 
   const updateImageState = useCallback((localId: string, patch: Partial<LocalImage>) => {
     setImages((current) => current.map((image) => (image.localId === localId ? { ...image, ...patch } : image)));
@@ -1090,6 +1255,7 @@ function App() {
     }
     setFinalizing(true);
     setError("");
+    initProcessingStages(["ocr", "compliance_check"]);
     stageClockRef.current.finalizeStartedAt = Date.now();
     try {
       let resolvedSessionId = sessionId;
@@ -1101,6 +1267,7 @@ function App() {
         throw new Error("Unable to start scan session. Check network and retry.");
       }
       const telemetry = buildClientMetrics();
+      updateStage("ocr", { progress: 50 });
       let response = await apiFetch(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/finalize`, {
         method: "POST",
         headers: {
@@ -1112,6 +1279,7 @@ function App() {
           clientMetrics: telemetry.metrics
         })
       }, 2, 650);
+      completeStage("ocr");
       let payload = await response.json();
       if (!response.ok && response.status === 404 && payload.error === "scan_session_not_found") {
         const created = await createSession();
@@ -1124,11 +1292,13 @@ function App() {
       if (!response.ok) {
         throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
       }
+      completeStage("compliance_check");
       stageClockRef.current.finalizeEndedAt = Date.now();
       const finalizedApplicationId = String(payload.applicationId ?? applicationId ?? "");
       setApplicationId(finalizedApplicationId);
       setResult(payload as FinalizeResult);
       setReportVisible(true);
+      setProcessingStages([]);
       if (finalizedApplicationId) {
         await queuePendingCrdtCommit(finalizedApplicationId, {
           kind: "scanner_finalize_commit",
@@ -1146,6 +1316,13 @@ function App() {
         if (historyOpen) await loadHistory();
       }
     } catch (err) {
+      const currentStageId = processingStages.find((s) => s.status === "active")?.id;
+      if (currentStageId) {
+        updateStage(currentStageId, {
+          status: "error",
+          errorMessage: formatNetworkError(err, "Send/Finalize")
+        });
+      }
       setError(formatNetworkError(err, "Send/Finalize"));
     } finally {
       setFinalizing(false);
@@ -1159,13 +1336,17 @@ function App() {
     backReady,
     buildClientMetrics,
     claimPendingApplications,
+    completeStage,
     createSession,
     flushPendingCrdtCommits,
     frontReady,
     historyOpen,
+    initProcessingStages,
     loadHistory,
+    processingStages,
     queuePendingCrdtCommit,
-    sessionId
+    sessionId,
+    updateStage
   ]);
 
   const spreadStack = useCallback(
@@ -1280,6 +1461,7 @@ function App() {
                       type="button"
                       className="auth-login-btn"
                       onClick={() => {
+                        setAuthMode("sign_in");
                         setAuthModalOpen(true);
                         setAuthError("");
                         setAuthInfo("");
@@ -1367,19 +1549,8 @@ function App() {
             />
 
             <div className="scanner-actions">
-              {result ? (
-                <IonButton
-                  className="report-button"
-                  fill="clear"
-                  size="default"
-                  onClick={() => setReportVisible(true)}
-                >
-                  <IonIcon icon={receiptOutline} slot="start" />
-                  Report
-                </IonButton>
-              ) : (
-                <span />
-              )}
+              {/* Empty left spacer for centering */}
+              <span />
 
               <IonButton
                 className="fab-plus"
@@ -1402,6 +1573,22 @@ function App() {
                 <IonIcon icon={paperPlaneOutline} />
                 <span>{finalizing ? "Sending..." : "Send"}</span>
               </IonButton>
+
+              {/* Report button positioned separately if results exist */}
+              {result ? (
+                <IonButton
+                  className="report-button"
+                  fill="clear"
+                  size="default"
+                  onClick={() => setReportVisible(true)}
+                  style={{ gridColumn: '1', justifySelf: 'start' }}
+                >
+                  <IonIcon icon={receiptOutline} slot="start" />
+                  Report
+                </IonButton>
+              ) : (
+                <span />
+              )}
             </div>
 
             <section className="scan-card-dock">
@@ -1486,6 +1673,21 @@ function App() {
                 <IonIcon icon={logOutOutline} />
                 <span>Log Out</span>
               </button>
+              <button
+                type="button"
+                className="account-action delete"
+                onClick={() => {
+                  setAccountMenuOpen(false);
+                  setDeleteError("");
+                  setDeleteInfo("");
+                  setDeleteOtpCode("");
+                  setDeleteConfirmationText("");
+                  setDeleteAccountOpen(true);
+                }}
+              >
+                <IonIcon icon={trashOutline} />
+                <span>Delete Account</span>
+              </button>
             </div>
           </IonPopover>
           <IonModal isOpen={historyOpen} onDidDismiss={() => setHistoryOpen(false)} className="history-modal">
@@ -1559,7 +1761,7 @@ function App() {
           <IonModal isOpen={authModalOpen} onDidDismiss={() => setAuthModalOpen(false)} backdropDismiss={!authBusy} className="auth-modal">
             <div className="auth-overlay">
               <div className="auth-header">
-                <strong>Sign In</strong>
+                <strong>{authMode === "register" ? "Create Account" : "Sign In"}</strong>
                 <button type="button" className="report-close" disabled={authBusy} onClick={() => setAuthModalOpen(false)} aria-label="Close sign in">
                   <IonIcon icon={close} />
                 </button>
@@ -1576,35 +1778,82 @@ function App() {
                 autoComplete="email"
                 placeholder="you@example.com"
               />
-              <IonButton className="auth-btn" onClick={() => void requestOtp()} disabled={authBusy || !authEmail.trim()}>
-                Request OTP
-              </IonButton>
-              <IonButton
-                className="auth-btn"
-                fill="outline"
-                onClick={() => {
-                  window.location.href = `${apiBase}/register`;
-                }}
-                disabled={authBusy}
-              >
-                Create Account
-              </IonButton>
-              <label htmlFor="auth-code">One-Time Code</label>
-              <input
-                id="auth-code"
-                className="auth-input"
-                type="text"
-                value={authCode}
-                onChange={(event) => setAuthCode(event.currentTarget.value)}
-                disabled={authBusy}
-                autoComplete="one-time-code"
-                inputMode="numeric"
-              />
-              <IonButton className="auth-btn verify" onClick={() => void verifyOtp()} disabled={authBusy || !authEmail.trim() || !authCode.trim()}>
-                Verify & Sign In
-              </IonButton>
+              {authMode === "register" ? (
+                <>
+                  <IonButton className="auth-btn verify" onClick={() => void requestRegistration()} disabled={authBusy || !authEmail.trim()}>
+                    Send Verification Link
+                  </IonButton>
+                  <IonButton className="auth-btn" fill="outline" onClick={() => setAuthMode("sign_in")} disabled={authBusy}>
+                    Back to Sign In
+                  </IonButton>
+                </>
+              ) : (
+                <>
+                  <IonButton className="auth-btn" onClick={() => void requestOtp()} disabled={authBusy || !authEmail.trim()}>
+                    Request OTP
+                  </IonButton>
+                  <IonButton className="auth-btn" fill="outline" onClick={() => setAuthMode("register")} disabled={authBusy}>
+                    Create Account
+                  </IonButton>
+                  <label htmlFor="auth-code">One-Time Code</label>
+                  <input
+                    id="auth-code"
+                    className="auth-input"
+                    type="text"
+                    value={authCode}
+                    onChange={(event) => setAuthCode(event.currentTarget.value)}
+                    disabled={authBusy}
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                  />
+                  <IonButton className="auth-btn verify" onClick={() => void verifyOtp()} disabled={authBusy || !authEmail.trim() || !authCode.trim()}>
+                    Verify & Sign In
+                  </IonButton>
+                </>
+              )}
               {authError ? <p className="auth-error">{authError}</p> : null}
               {authInfo ? <p className="auth-info">{authInfo}</p> : null}
+            </div>
+          </IonModal>
+          <IonModal isOpen={deleteAccountOpen} onDidDismiss={() => setDeleteAccountOpen(false)} backdropDismiss={!deleteBusy} className="auth-modal">
+            <div className="auth-overlay">
+              <div className="auth-header">
+                <strong>Delete Account</strong>
+                <button type="button" className="report-close" disabled={deleteBusy} onClick={() => setDeleteAccountOpen(false)} aria-label="Close delete account">
+                  <IonIcon icon={close} />
+                </button>
+              </div>
+              <p className="auth-info">This permanently deletes your account, saved scans, history, and associated data.</p>
+              <IonButton className="auth-btn" onClick={() => void requestDeleteOtp()} disabled={deleteBusy || !authUser?.email}>
+                Request OTP
+              </IonButton>
+              <label htmlFor="delete-otp-code">OTP Code</label>
+              <input
+                id="delete-otp-code"
+                className="auth-input"
+                type="text"
+                value={deleteOtpCode}
+                onChange={(event) => setDeleteOtpCode(event.currentTarget.value)}
+                disabled={deleteBusy}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                placeholder="Enter OTP"
+              />
+              <label htmlFor="delete-confirm-text">Type DELETE to confirm</label>
+              <input
+                id="delete-confirm-text"
+                className="auth-input"
+                type="text"
+                value={deleteConfirmationText}
+                onChange={(event) => setDeleteConfirmationText(event.currentTarget.value)}
+                disabled={deleteBusy}
+                placeholder="DELETE"
+              />
+              <IonButton className="auth-btn danger" onClick={() => void deleteAccount()} disabled={deleteBusy || !deleteOtpCode.trim() || !deleteConfirmationText.trim()}>
+                Delete My Account
+              </IonButton>
+              {deleteError ? <p className="auth-error">{deleteError}</p> : null}
+              {deleteInfo ? <p className="auth-info">{deleteInfo}</p> : null}
             </div>
           </IonModal>
           <IonModal
@@ -1654,7 +1903,33 @@ function App() {
           </IonModal>
         </IonContent>
       </IonPage>
-      <IonLoading isOpen={sessionLoading || finalizing} message={loadingMessage} />
+
+      {/* Processing stages modal */}
+      <IonModal
+        isOpen={processingStages.length > 0}
+        backdropDismiss={false}
+        className="processing-stages-modal"
+      >
+        <IonContent className="ion-padding">
+          <div style={{ padding: "1rem" }}>
+            <h2 style={{ color: "var(--foam)", marginBottom: "1rem" }}>Processing Label</h2>
+            <LoadingStages
+              stages={processingStages}
+              onRetry={(stageId) => {
+                // Reset failed stage and retry
+                updateStage(stageId, { status: "active", errorMessage: undefined });
+                void finalizeScan();
+              }}
+            />
+          </div>
+        </IonContent>
+      </IonModal>
+
+      {/* Simple loading indicator for session init */}
+      <IonLoading
+        isOpen={sessionLoading && processingStages.length === 0}
+        message={loadingMessage}
+      />
     </IonApp>
   );
 }

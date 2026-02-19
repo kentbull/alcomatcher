@@ -260,6 +260,15 @@ ion-app {
   gap: 0.32rem;
 }
 
+.account-action.delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  border-color: rgba(214, 101, 84, 0.48);
+  color: #ffd8cf;
+}
+
 .scanner-hero h1 {
   margin: 0.08rem 0 0.2rem;
   font-size: clamp(1.18rem, 3.5vw, 1.66rem);
@@ -331,7 +340,7 @@ ion-app {
 
 .scanner-actions {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto auto 1fr;
   align-items: end;
   gap: 0.48rem;
   min-height: 92px;
@@ -386,9 +395,10 @@ ion-app {
 .fab-send {
   --background: transparent;
   --color: #f6e8cf;
-  justify-self: end;
+  justify-self: start;
   display: grid;
   gap: 0.14rem;
+  margin-left: 1rem;
 }
 
 .fab-send ion-icon {
@@ -603,6 +613,12 @@ ion-app {
   --color: #28180f;
 }
 
+.auth-btn.danger {
+  --background: linear-gradient(180deg, #d87865, #b74d3e);
+  --color: #fff5f0;
+  border-color: rgba(187, 77, 62, 0.55);
+}
+
 .auth-error {
   margin: 0.2rem 0 0;
   font-size: 0.76rem;
@@ -754,6 +770,147 @@ ion-app {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Loading States Components */
+.processing-stages-modal {
+  --background: rgba(28, 16, 11, 0.95);
+  --backdrop-opacity: 0.6;
+}
+
+.processing-stages-modal ion-content {
+  --background: transparent;
+}
+
+.progress-indicator {
+  width: 100%;
+}
+
+.progress-indicator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.progress-indicator-label {
+  font-size: 0.85rem;
+  color: var(--foam);
+  font-weight: 500;
+}
+
+.progress-indicator-percentage {
+  font-size: 0.75rem;
+  color: var(--cask-gold-soft);
+  font-weight: 600;
+}
+
+.progress-indicator-bar {
+  --background: rgba(192, 138, 60, 0.2);
+  --progress-background: linear-gradient(90deg, var(--cask-gold), var(--cask-gold-soft));
+  height: 6px;
+  border-radius: 3px;
+}
+
+.loading-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.loading-stage {
+  display: flex;
+  gap: 0.75rem;
+  position: relative;
+  transition: opacity 0.3s ease;
+}
+
+.loading-stage--pending {
+  opacity: 0.5;
+}
+
+.loading-stage--active {
+  opacity: 1;
+}
+
+.loading-stage--completed {
+  opacity: 0.7;
+}
+
+.loading-stage--error {
+  opacity: 1;
+}
+
+.loading-stage-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.loading-stage-spinner {
+  animation: spinner-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes spinner-pulse {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.loading-stage-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loading-stage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.loading-stage-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--foam);
+}
+
+.loading-stage-estimate {
+  font-size: 0.75rem;
+  color: var(--cask-gold-soft);
+  font-weight: 500;
+}
+
+.loading-stage-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loading-stage-error-message {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.loading-stage-connector {
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  width: 2px;
+  height: calc(100% + 1rem);
+  background: rgba(192, 138, 60, 0.2);
 }
 
 @media (max-width: 520px) {
