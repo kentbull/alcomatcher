@@ -649,21 +649,24 @@ export class ComplianceService {
       throw new Error("application_not_found");
     }
 
-    await eventStore.appendEvent({
-      eventId: randomUUID(),
-      applicationId,
-      eventType: "ReviewerOverrideRecorded",
-      payload: {
-        decision: "approved",
-        reviewedBy,
-        notes: notes || "",
-        previousStatus: app.status
-      },
-      createdAt: new Date().toISOString()
+    // Record reviewer override event
+    await this.appendEvent(applicationId, "ReviewerOverrideRecorded", {
+      decision: "approved",
+      reviewedBy,
+      notes: notes || "",
+      previousStatus: app.status
     });
 
-    await this.updateApplicationStatus(applicationId, "approved", { reviewedBy });
-    await this.emitStatusChangeEvent(applicationId, "approved", app.syncState, {
+    // Update application with new status
+    const updated: ComplianceApplicationDoc = {
+      ...app,
+      status: "approved",
+      updatedAt: new Date().toISOString()
+    };
+    await this.refreshDocFromEvents(updated, { preserveChecks: true });
+
+    // Emit real-time event
+    this.publishStatusChanged(applicationId, "approved", app.syncState, {
       reviewedBy,
       decision: "approved"
     });
@@ -682,22 +685,25 @@ export class ComplianceService {
       throw new Error("application_not_found");
     }
 
-    await eventStore.appendEvent({
-      eventId: randomUUID(),
-      applicationId,
-      eventType: "ReviewerOverrideRecorded",
-      payload: {
-        decision: "rejected",
-        reviewedBy,
-        reason,
-        notes: notes || "",
-        previousStatus: app.status
-      },
-      createdAt: new Date().toISOString()
+    // Record reviewer override event
+    await this.appendEvent(applicationId, "ReviewerOverrideRecorded", {
+      decision: "rejected",
+      reviewedBy,
+      reason,
+      notes: notes || "",
+      previousStatus: app.status
     });
 
-    await this.updateApplicationStatus(applicationId, "rejected", { reviewedBy, reason });
-    await this.emitStatusChangeEvent(applicationId, "rejected", app.syncState, {
+    // Update application with new status
+    const updated: ComplianceApplicationDoc = {
+      ...app,
+      status: "rejected",
+      updatedAt: new Date().toISOString()
+    };
+    await this.refreshDocFromEvents(updated, { preserveChecks: true });
+
+    // Emit real-time event
+    this.publishStatusChanged(applicationId, "rejected", app.syncState, {
       reviewedBy,
       decision: "rejected",
       reason
