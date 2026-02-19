@@ -135,19 +135,50 @@ export const AdminApp: React.FC = () => {
             path="/login"
             element={
               <div style={{
-                padding: "calc(60px + 2rem) 2rem 2rem",
+                padding: "calc(60px + env(safe-area-inset-top, 0px) + 2rem) max(env(safe-area-inset-right, 0px), 1rem) max(env(safe-area-inset-bottom, 0px), 2rem) max(env(safe-area-inset-left, 0px), 1rem)",
                 background: "var(--admin-bg)",
                 minHeight: "100vh",
-                color: "var(--text-primary)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <div className="admin-card" style={{ maxWidth: "400px" }}>
-                  <h1 className="admin-heading-1">Sign In</h1>
-                  <p className="admin-text-muted">
-                    Login page to be implemented. For now, this is a placeholder.
+                <div className="admin-card" style={{
+                  width: "100%",
+                  maxWidth: "420px",
+                  margin: "0 auto",
+                }}>
+                  <h1 className="admin-heading-1" style={{
+                    textAlign: "center",
+                    marginBottom: "1rem"
+                  }}>Sign In</h1>
+                  <p className="admin-text-muted" style={{
+                    textAlign: "center",
+                    marginBottom: "2rem",
+                    lineHeight: "1.6"
+                  }}>
+                    Authentication is required to access the admin dashboard.
                   </p>
+                  <div style={{
+                    padding: "1.5rem",
+                    background: "rgba(192, 138, 60, 0.1)",
+                    border: "1px solid rgba(192, 138, 60, 0.3)",
+                    borderRadius: "8px",
+                    textAlign: "center"
+                  }}>
+                    <p className="admin-text-secondary" style={{ margin: "0 0 1rem 0" }}>
+                      Please sign in through the main application to access the admin panel.
+                    </p>
+                    <a
+                      href="/"
+                      className="btn-admin btn-admin--primary"
+                      style={{
+                        textDecoration: "none",
+                        display: "inline-flex"
+                      }}
+                    >
+                      Go to Home
+                    </a>
+                  </div>
                 </div>
               </div>
             }
