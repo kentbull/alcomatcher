@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { ComplianceApplicationDoc, ComplianceCheck, ComplianceEvent, CrdtOperation, RegulatoryProfile } from "../types/compliance.js";
+import type { LabelApplicationDoc, ComplianceCheck, ComplianceEvent, CrdtOperation, RegulatoryProfile } from "../types/compliance.js";
+import { labelApplicationStatusColor } from "../types/compliance.js";
+/** @deprecated Use LabelApplicationDoc */
+type ComplianceApplicationDoc = LabelApplicationDoc;
 import type { ScannerQuickCheckResult } from "../types/scanner.js";
 import type { ExpectedLabelFields } from "../types/scanner.js";
 import { eventStore } from "./eventStore.js";
@@ -59,8 +62,12 @@ type HistoryActor = { userId: string; role: "compliance_officer" | "compliance_m
 
 interface HistoryListItem {
   applicationId: string;
-  status: ComplianceApplicationDoc["status"];
-  syncState: ComplianceApplicationDoc["syncState"];
+  labelApplicationNumber: string;
+  brandName: string | null;
+  classType: string | null;
+  status: LabelApplicationDoc["status"];
+  statusColor: import("../types/compliance.js").LabelApplicationStatusColor;
+  syncState: LabelApplicationDoc["syncState"];
   updatedAt: string;
   createdByUserId: string | null;
   summary: ScannerQuickCheckResult["summary"] | null;
@@ -144,15 +151,20 @@ export class ComplianceService {
     const existing = this.docs.get(applicationId);
     if (!existing) return null;
 
-    const nextStatus: ComplianceApplicationDoc["status"] =
+    const nextStatus: LabelApplicationDoc["status"] =
       result.summary === "pass" ? "matched" : result.summary === "fail" ? "rejected" : "needs_review";
 
+    const brandName = result.extracted?.brandName ?? existing.brandName;
+    const classType = result.extracted?.classType ?? existing.classType;
+
     const normalizedChecks = normalizeScannerChecks(result.checks, existing.regulatoryProfile, result.confidence);
-    const updatedInput: ComplianceApplicationDoc = {
+    const updatedInput: LabelApplicationDoc = {
       ...existing,
       status: nextStatus,
       checks: normalizedChecks,
       syncState: "pending_sync",
+      brandName,
+      classType,
       updatedAt: new Date().toISOString()
     };
 
@@ -314,9 +326,14 @@ export class ComplianceService {
       all.map(async (app) => {
         const projection = await this.getProjection(app.applicationId);
         const ownerUserId = await this.getApplicationOwnerUserId(app.applicationId);
+        const status = projection?.status ?? app.status;
         return {
           applicationId: app.applicationId,
-          status: projection?.status ?? app.status,
+          labelApplicationNumber: app.applicationId.slice(0, 8).toUpperCase(),
+          brandName: app.brandName ?? null,
+          classType: app.classType ?? null,
+          status,
+          statusColor: labelApplicationStatusColor(status),
           syncState: app.syncState,
           updatedAt: app.updatedAt,
           createdByUserId: ownerUserId,
@@ -465,6 +482,14 @@ export class ComplianceService {
     };
   }
 
+  async recordPipelineEvent(
+    applicationId: string,
+    eventType: "ImageNormalizationCompleted" | "OcrCompleted" | "ExtractionCompleted" | "ComplianceChecksCompleted",
+    payload: Record<string, unknown>
+  ) {
+    await this.appendEvent(applicationId, eventType, payload);
+  }
+
   async appendCrdtOps(applicationId: string, actorId: string, ops: Array<{ sequence: number; payload: Record<string, unknown> }>) {
     const existingDoc = await this.getApplication(applicationId);
     if (!existingDoc) return null;
@@ -563,11 +588,11 @@ export class ComplianceService {
     return owner;
   }
 
-  private async refreshDocFromEvents(doc: ComplianceApplicationDoc, options?: { preserveChecks?: boolean }) {
+  private async refreshDocFromEvents(doc: LabelApplicationDoc, options?: { preserveChecks?: boolean }) {
     const events = await this.getEvents(doc.applicationId);
     const projection = projectApplication(doc.applicationId, events, doc, doc.status);
 
-    const nextDoc: ComplianceApplicationDoc = {
+    const nextDoc: LabelApplicationDoc = {
       ...doc,
       status: projection.status,
       syncState: projection.syncState,
@@ -577,6 +602,9 @@ export class ComplianceService {
           : projection.latestQuickCheck
             ? normalizeScannerChecks(projection.latestQuickCheck.checks, doc.regulatoryProfile, projection.latestQuickCheck.confidence)
             : doc.checks,
+      // Preserve brand/class through event replay — only set if not already on doc
+      brandName: doc.brandName,
+      classType: doc.classType,
       updatedAt: new Date().toISOString()
     };
 

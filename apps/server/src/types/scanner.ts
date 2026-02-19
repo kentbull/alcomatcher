@@ -1,5 +1,5 @@
 export interface OcrResult {
-  provider: "local_tesseract" | "cloud_fallback";
+  provider: "local_tesseract" | "cloud_fallback" | "google_cloud_vision";
   text: string;
   confidence: number;
   usedFallback: boolean;
@@ -25,6 +25,7 @@ export interface ExtractedFields {
   abvText?: string;
   netContents?: string;
   hasGovWarning: boolean;
+  govWarningExtracted?: string;
 }
 
 export interface ScanFieldSource {

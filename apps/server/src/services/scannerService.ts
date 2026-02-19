@@ -1,8 +1,18 @@
-import { CloudFallbackAdapter } from "./ocr/cloudFallbackAdapter.js";
+import { GoogleCloudVisionAdapter } from "./ocr/googleCloudVisionAdapter.js";
 import { LocalTesseractAdapter } from "./ocr/localTesseractAdapter.js";
 import type { CompositeExtractedFields, ExpectedLabelFields, OcrAdapter, PerImageScanResult, ScanImageRole, ScannerCheck, ScannerQuickCheckResult } from "../types/scanner.js";
 
 const GOV_WARNING_TOKEN = "GOVERNMENT WARNING";
+
+/**
+ * TTB required government warning text per 27 CFR 16.21 (normalized whitespace).
+ * "GOVERNMENT WARNING" must appear in all caps.
+ */
+const GOV_WARNING_REQUIRED_TEXT =
+  "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink " +
+  "alcoholic beverages during pregnancy because of the risk of birth defects. " +
+  "(2) Consumption of alcoholic beverages impairs your ability to drive a car or " +
+  "operate machinery, and may cause health problems.";
 const OVERRIDE_DELTA = 0.12;
 
 interface ScanInputImage {
@@ -18,10 +28,20 @@ interface ScanFieldCandidate {
   confidence: number;
 }
 
+// Canonical class type list — any case variation maps to the canonical lowercase form
+const CANONICAL_CLASS_TYPES = new Map<string, string>([
+  ["bourbon", "bourbon"], ["whiskey", "whiskey"], ["whisky", "whisky"],
+  ["rum", "rum"], ["vodka", "vodka"], ["tequila", "tequila"], ["gin", "gin"],
+  ["brandy", "brandy"], ["cognac", "cognac"], ["mezcal", "mezcal"],
+  ["distilled spirits", "distilled spirits"], ["spirits", "spirits"],
+  ["wine", "wine"], ["beer", "beer"], ["ale", "ale"], ["lager", "lager"],
+  ["malt beverage", "malt beverage"], ["cider", "cider"]
+]);
+
 export class ScannerService {
   constructor(
     private readonly localOcr: OcrAdapter = new LocalTesseractAdapter(),
-    private readonly cloudFallback: OcrAdapter = new CloudFallbackAdapter()
+    private readonly cloudFallback: OcrAdapter = new GoogleCloudVisionAdapter()
   ) {}
 
   async quickCheck(image: Buffer, expected?: ExpectedLabelFields): Promise<ScannerQuickCheckResult> {
@@ -173,13 +193,23 @@ export class ScannerService {
       /(bourbon|whiskey|whisky|rum|vodka|tequila|gin|brandy|distilled|spirits|wine|beer|ale|lager)/i.test(line)
     );
 
+    // Extract government warning text: capture from "GOVERNMENT WARNING" token to end of sentence pair
+    const govWarningIndex = normalized.toUpperCase().indexOf(GOV_WARNING_TOKEN);
+    let govWarningExtracted: string | undefined;
+    if (govWarningIndex !== -1) {
+      // Grab up to 600 chars from the token, normalize whitespace
+      const raw = normalized.slice(govWarningIndex, govWarningIndex + 600);
+      govWarningExtracted = raw.replace(/\s+/g, " ").trim();
+    }
+
     return {
       rawText,
       brandName,
       classType,
       abvText: abvMatch?.[0],
       netContents: netMatch ? `${netMatch[1]} ${netMatch[2]}` : undefined,
-      hasGovWarning: normalized.toUpperCase().includes(GOV_WARNING_TOKEN)
+      hasGovWarning: govWarningIndex !== -1,
+      govWarningExtracted
     };
   }
 
@@ -263,11 +293,41 @@ export class ScannerService {
         label: "Government Warning",
         status: extracted.hasGovWarning ? "pass" : "fail",
         detail: extracted.hasGovWarning ? "Detected GOVERNMENT WARNING token" : "Missing GOVERNMENT WARNING token"
+      },
+      {
+        id: "gov_warning_capitalization",
+        label: "Government Warning Capitalization",
+        status: extracted.govWarningExtracted
+          ? (extracted.govWarningExtracted.startsWith("GOVERNMENT WARNING") ? "pass" : "fail")
+          : "not_evaluable",
+        detail: extracted.govWarningExtracted
+          ? (extracted.govWarningExtracted.startsWith("GOVERNMENT WARNING")
+            ? "\"GOVERNMENT WARNING\" detected in all caps as required"
+            : `TTB requires "GOVERNMENT WARNING" in all caps. Extracted: "${extracted.govWarningExtracted.slice(0, 60)}..."`)
+          : "Government warning text not detected"
+      },
+      {
+        id: "gov_warning_text_exact",
+        label: "Government Warning Text (Exact)",
+        status: (() => {
+          if (!extracted.govWarningExtracted) return "not_evaluable";
+          const normalized = extracted.govWarningExtracted.replace(/\s+/g, " ").trim();
+          const required = GOV_WARNING_REQUIRED_TEXT.replace(/\s+/g, " ").trim();
+          // Check if extracted text contains the required text (allows for some OCR noise around it)
+          const extractedNorm = normalized.replace(/[^a-z0-9 ]/gi, " ").replace(/\s+/g, " ").toLowerCase();
+          const requiredNorm = required.replace(/[^a-z0-9 ]/gi, " ").replace(/\s+/g, " ").toLowerCase();
+          return extractedNorm.includes(requiredNorm.slice(0, 120)) ? "pass" : "fail";
+        })(),
+        detail: extracted.govWarningExtracted
+          ? `Extracted: "${extracted.govWarningExtracted.slice(0, 80)}..."`
+          : "Government warning text not detected — required per 27 CFR 16.21"
       }
     ];
 
     if (expected?.brandName) {
-      const matches = this.normalized(extracted.brandName) === this.normalized(expected.brandName);
+      const normExtracted = this.normalized(extracted.brandName);
+      const normExpected = this.normalized(expected.brandName);
+      const matches = normExtracted === normExpected || levenshtein(normExtracted, normExpected) <= 2;
       checks.push({
         id: "brand_name_match",
         label: "Brand Name Match",
@@ -279,11 +339,14 @@ export class ScannerService {
     }
 
     if (expected?.classType) {
-      const matches = this.normalized(extracted.classType) === this.normalized(expected.classType);
+      const normExtracted = canonicalClassType(extracted.classType);
+      const normExpected = canonicalClassType(expected.classType);
+      const matches = normExtracted !== null && normExpected !== null && normExtracted === normExpected;
+      const fallbackMatches = this.normalized(extracted.classType) === this.normalized(expected.classType);
       checks.push({
         id: "class_type_match",
         label: "Class / Type Match",
-        status: extracted.classType ? (matches ? "pass" : "fail") : "not_evaluable",
+        status: extracted.classType ? (matches || fallbackMatches ? "pass" : "fail") : "not_evaluable",
         detail: extracted.classType
           ? `Expected: ${expected.classType}; Extracted: ${extracted.classType}`
           : `Expected: ${expected.classType}; Extracted class/type not detected`
@@ -376,4 +439,33 @@ function toStringValue(value: string | boolean | undefined) {
 function average(values: number[]) {
   if (values.length === 0) return 0;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+/**
+ * Returns canonical lowercase class type if it matches any known class, otherwise null.
+ */
+function canonicalClassType(value?: string): string | null {
+  if (!value) return null;
+  const normalized = value.toLowerCase().replace(/[^a-z ]/g, "").trim();
+  for (const [key, canonical] of CANONICAL_CLASS_TYPES) {
+    if (normalized === key || normalized.includes(key)) return canonical;
+  }
+  return null;
+}
+
+/**
+ * Levenshtein distance between two strings (iterative, O(n*m)).
+ */
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
 }

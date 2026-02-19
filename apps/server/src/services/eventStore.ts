@@ -1,6 +1,8 @@
 import { Pool } from "pg";
 import { env } from "../config/env.js";
-import type { ApplicationStatus, ComplianceApplicationDoc, ComplianceEvent, CrdtOperation } from "../types/compliance.js";
+import type { ApplicationStatus, LabelApplicationDoc, ComplianceEvent, CrdtOperation } from "../types/compliance.js";
+/** @deprecated Use LabelApplicationDoc */
+type ComplianceApplicationDoc = LabelApplicationDoc;
 import type { BatchItemAttemptRecord, BatchItemRecord, BatchJobRecord } from "../types/batch.js";
 
 export class EventStore {
@@ -11,33 +13,37 @@ export class EventStore {
     this.pool = new Pool({ connectionString: env.DATABASE_URL });
   }
 
-  async upsertApplication(doc: ComplianceApplicationDoc): Promise<void> {
+  async upsertApplication(doc: LabelApplicationDoc): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO compliance_applications (
+      INSERT INTO label_applications (
         application_id,
         document_id,
         regulatory_profile,
         submission_type,
         current_status,
         sync_state,
+        brand_name,
+        class_type,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW())
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, NOW())
       ON CONFLICT (application_id)
       DO UPDATE SET
         current_status = EXCLUDED.current_status,
         sync_state = EXCLUDED.sync_state,
+        brand_name = COALESCE(EXCLUDED.brand_name, label_applications.brand_name),
+        class_type = COALESCE(EXCLUDED.class_type, label_applications.class_type),
         updated_at = NOW()
       `,
-      [doc.applicationId, doc.documentId, doc.regulatoryProfile, doc.submissionType, doc.status, doc.syncState]
+      [doc.applicationId, doc.documentId, doc.regulatoryProfile, doc.submissionType, doc.status, doc.syncState, doc.brandName ?? null, doc.classType ?? null]
     );
   }
 
-  async updateApplicationStatus(applicationId: string, status: ApplicationStatus, syncState: ComplianceApplicationDoc["syncState"]): Promise<void> {
+  async updateApplicationStatus(applicationId: string, status: ApplicationStatus, syncState: LabelApplicationDoc["syncState"]): Promise<void> {
     await this.pool.query(
       `
-      UPDATE compliance_applications
+      UPDATE label_applications
       SET current_status = $2,
           sync_state = $3,
           updated_at = NOW()
@@ -63,14 +69,16 @@ export class EventStore {
     );
   }
 
-  async listApplications(): Promise<ComplianceApplicationDoc[]> {
+  async listApplications(): Promise<LabelApplicationDoc[]> {
     const { rows } = await this.pool.query<{
       application_id: string;
       document_id: string;
-      regulatory_profile: ComplianceApplicationDoc["regulatoryProfile"];
-      submission_type: ComplianceApplicationDoc["submissionType"];
-      current_status: ComplianceApplicationDoc["status"];
-      sync_state: ComplianceApplicationDoc["syncState"];
+      regulatory_profile: LabelApplicationDoc["regulatoryProfile"];
+      submission_type: LabelApplicationDoc["submissionType"];
+      current_status: LabelApplicationDoc["status"];
+      sync_state: LabelApplicationDoc["syncState"];
+      brand_name: string | null;
+      class_type: string | null;
       updated_at: Date;
     }>(
       `
@@ -81,8 +89,10 @@ export class EventStore {
         submission_type,
         current_status,
         sync_state,
+        brand_name,
+        class_type,
         updated_at
-      FROM compliance_applications
+      FROM label_applications
       ORDER BY updated_at DESC
       LIMIT 200
       `
@@ -96,6 +106,8 @@ export class EventStore {
       status: row.current_status,
       checks: [],
       syncState: row.sync_state,
+      brandName: row.brand_name ?? undefined,
+      classType: row.class_type ?? undefined,
       updatedAt: row.updated_at.toISOString()
     }));
   }
@@ -468,7 +480,7 @@ export class EventStore {
     if (scope === "all") {
       const { rowCount } = await this.pool.query(
         `
-        UPDATE compliance_applications
+        UPDATE label_applications
         SET sync_state = 'synced',
             updated_at = NOW()
         WHERE sync_state = 'pending_sync'
@@ -477,7 +489,7 @@ export class EventStore {
       return rowCount ?? 0;
     }
 
-    const terminalStatuses: ComplianceApplicationDoc["status"][] = [
+    const terminalStatuses: LabelApplicationDoc["status"][] = [
       "matched",
       "approved",
       "rejected",
@@ -486,7 +498,7 @@ export class EventStore {
     ];
     const { rowCount } = await this.pool.query(
       `
-      UPDATE compliance_applications
+      UPDATE label_applications
       SET sync_state = 'synced',
           updated_at = NOW()
       WHERE sync_state = 'pending_sync'
@@ -497,14 +509,14 @@ export class EventStore {
     return rowCount ?? 0;
   }
 
-  async getSyncStateCounts(): Promise<Record<ComplianceApplicationDoc["syncState"], number>> {
+  async getSyncStateCounts(): Promise<Record<LabelApplicationDoc["syncState"], number>> {
     const { rows } = await this.pool.query<{
-      sync_state: ComplianceApplicationDoc["syncState"];
+      sync_state: LabelApplicationDoc["syncState"];
       count: string;
     }>(
       `
       SELECT sync_state, COUNT(*)::text AS count
-      FROM compliance_applications
+      FROM label_applications
       GROUP BY sync_state
       `
     );
@@ -520,14 +532,14 @@ export class EventStore {
     return counts;
   }
 
-  async getStatusCounts(): Promise<Record<ComplianceApplicationDoc["status"], number>> {
+  async getStatusCounts(): Promise<Record<LabelApplicationDoc["status"], number>> {
     const { rows } = await this.pool.query<{
-      current_status: ComplianceApplicationDoc["status"];
+      current_status: LabelApplicationDoc["status"];
       count: string;
     }>(
       `
       SELECT current_status, COUNT(*)::text AS count
-      FROM compliance_applications
+      FROM label_applications
       GROUP BY current_status
       `
     );
@@ -769,6 +781,35 @@ export class EventStore {
     };
   }
 
+  async updateImageQuality(
+    imageId: string,
+    quality: {
+      qualityStatus: "assessing" | "good" | "reshoot";
+      qualityIssues?: string[];
+      qualityScore?: number;
+    }
+  ): Promise<void> {
+    await this.ensureSubmissionImagesSchema();
+    await this.pool.query(
+      `
+      UPDATE submission_images
+      SET quality_status = $2,
+          quality_issues = $3::jsonb,
+          quality_score = $4
+      WHERE image_id = $1::uuid
+      `,
+      [imageId, quality.qualityStatus, JSON.stringify(quality.qualityIssues ?? null), quality.qualityScore ?? null]
+    );
+  }
+
+  async markImageSuperseded(imageId: string, supersededById: string): Promise<void> {
+    await this.ensureSubmissionImagesSchema();
+    await this.pool.query(
+      `UPDATE submission_images SET superseded_by = $2::uuid WHERE image_id = $1::uuid`,
+      [imageId, supersededById]
+    );
+  }
+
   async listExpiredSubmissionImages(retentionDays: number): Promise<
     Array<{ imageId: string; storagePath: string; thumbStoragePath: string }>
   > {
@@ -812,7 +853,7 @@ export class EventStore {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS submission_images (
         image_id UUID PRIMARY KEY,
-        application_id UUID NOT NULL REFERENCES compliance_applications(application_id),
+        application_id UUID NOT NULL REFERENCES label_applications(application_id),
         role TEXT NOT NULL,
         image_index INTEGER NOT NULL,
         mime_type TEXT NOT NULL,
@@ -820,6 +861,10 @@ export class EventStore {
         storage_path TEXT NOT NULL,
         thumb_storage_path TEXT NOT NULL,
         sha256 TEXT NOT NULL,
+        quality_status TEXT NOT NULL DEFAULT 'assessing',
+        quality_issues JSONB,
+        quality_score FLOAT,
+        superseded_by UUID,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_submission_images_application_id_created_at

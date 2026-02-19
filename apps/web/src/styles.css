@@ -414,6 +414,32 @@ ion-app {
   text-align: center;
 }
 
+.fab-reset {
+  --background: transparent;
+  --color: var(--cask-gold-soft);
+  display: grid;
+  gap: 0.14rem;
+  position: absolute;
+  right: 1rem;
+  top: 5.5rem;
+  opacity: 0.9;
+}
+
+.fab-reset ion-icon {
+  font-size: 1.4rem;
+}
+
+.fab-reset span {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.fab-reset:hover {
+  --color: var(--cask-gold);
+  opacity: 1;
+}
+
 .scan-card-dock {
   position: relative;
   min-height: 142px;
@@ -504,6 +530,31 @@ ion-app {
   padding: 0.22rem 0.33rem;
 }
 
+.reshoot-banner {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 29px;
+  border-radius: 7px;
+  min-height: 28px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(180, 90, 0, 0.92);
+  padding: 0.22rem 0.33rem;
+  text-align: center;
+}
+
+.quality-badge {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}
+.quality-badge--good    { background: rgba(34, 197, 94, 0.28); color: #86efac; }
+.quality-badge--reshoot { background: rgba(245, 158, 11, 0.28); color: #fcd34d; }
+
 .result-panel {
   margin-top: 0;
   padding: 0.76rem;
@@ -512,6 +563,13 @@ ion-app {
   background: rgba(250, 241, 224, 0.95);
   max-height: min(72vh, 560px);
   overflow: auto;
+  color: #2d1810;
+  font-weight: 500;
+}
+
+.result-panel strong {
+  color: #1a0e09;
+  font-weight: 700;
 }
 
 .result-panel ul {
@@ -519,29 +577,55 @@ ion-app {
   padding-left: 1rem;
 }
 
+.result-panel li {
+  color: #2d1810;
+  margin-bottom: 0.25rem;
+}
+
 .result-error {
   border-color: rgba(165, 20, 20, 0.3);
   background: #fff1f1;
+  color: #5a1010;
+}
+
+.result-error strong {
+  color: #3d0a0a;
 }
 
 .status-pass {
   border-color: rgba(28, 120, 51, 0.35);
   background: #edf9f0;
+  color: #1c4d28;
+}
+
+.status-pass strong {
+  color: #14351c;
 }
 
 .status-fail {
   border-color: rgba(158, 32, 22, 0.35);
   background: #fff2ee;
+  color: #5a1a12;
+}
+
+.status-fail strong {
+  color: #3d110c;
 }
 
 .status-needs_review {
   border-color: rgba(147, 102, 8, 0.35);
   background: #fff9e8;
+  color: #5a4008;
+}
+
+.status-needs_review strong {
+  color: #3d2a05;
 }
 
 .section-title {
   margin-top: 0.5rem;
   font-weight: 700;
+  color: #1a0e09;
 }
 
 .report-modal::part(backdrop) {
@@ -690,8 +774,8 @@ ion-app {
 .history-item-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .history-item-meta {
@@ -702,6 +786,14 @@ ion-app {
   font-size: 0.72rem;
   color: rgba(249, 229, 193, 0.88);
 }
+
+.status-dot          { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-dot--green   { background: #22c55e; }
+.status-dot--amber   { background: #f59e0b; }
+.status-dot--red     { background: #ef4444; }
+.label-app-number    { font-size: 0.95rem; font-weight: 700; letter-spacing: 0.05em; }
+.label-app-identity  { font-size: 0.82rem; color: rgba(249, 229, 193, 0.75); }
+.label-app-updated   { font-size: 0.72rem; color: rgba(249, 229, 193, 0.60); }
 
 .sync-badge {
   font-size: 0.68rem;
@@ -1351,15 +1443,39 @@ ion-app {
 }
 
 /* Loading States Components */
+/* Processing Modal - Theme Consistent */
 .processing-stages-modal {
-  --background: rgba(28, 16, 11, 0.95);
-  --backdrop-opacity: 0.6;
+  --background: rgba(28, 16, 11, 0.98);
+  --backdrop-opacity: 0.7;
 }
 
 .processing-stages-modal ion-content {
   --background: transparent;
+  --padding-top: env(safe-area-inset-top);
+  --padding-bottom: env(safe-area-inset-bottom);
 }
 
+.processing-modal-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  padding: 1rem 1rem 1rem 1rem;
+  border-bottom: 1.5px solid rgba(237, 196, 131, 0.2);
+}
+
+.processing-modal-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.5rem;
+  color: var(--foam);
+  font-weight: 700;
+}
+
+.processing-modal-header p {
+  margin: 0;
+  color: var(--cask-gold-soft);
+  font-size: 0.9rem;
+}
+
+/* Progress Indicator */
 .progress-indicator {
   width: 100%;
 }
@@ -1386,38 +1502,57 @@ ion-app {
 .progress-indicator-bar {
   --background: rgba(192, 138, 60, 0.2);
   --progress-background: linear-gradient(90deg, var(--cask-gold), var(--cask-gold-soft));
-  height: 6px;
-  border-radius: 3px;
+  height: 8px;
+  border-radius: 4px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
+/* Indeterminate Progress Bar */
+.progress-indicator-bar[type="indeterminate"] {
+  --progress-background: linear-gradient(90deg,
+    transparent,
+    var(--cask-gold),
+    var(--cask-gold-soft),
+    transparent
+  );
+}
+
+/* Loading Stages - Enhanced */
 .loading-stages {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem;
   padding: 1rem;
 }
 
 .loading-stage {
+  background: linear-gradient(135deg, rgba(64, 41, 29, 0.5), rgba(40, 26, 18, 0.5));
+  border: 1.5px solid rgba(237, 196, 131, 0.25);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.3s ease;
   display: flex;
   gap: 0.75rem;
   position: relative;
-  transition: opacity 0.3s ease;
 }
 
 .loading-stage--pending {
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
 .loading-stage--active {
-  opacity: 1;
+  border-color: rgba(192, 138, 60, 0.6);
+  box-shadow: 0 0 20px rgba(192, 138, 60, 0.15);
 }
 
 .loading-stage--completed {
+  border-color: rgba(89, 178, 117, 0.5);
   opacity: 0.7;
 }
 
 .loading-stage--error {
-  opacity: 1;
+  border-color: rgba(214, 101, 84, 0.5);
+  background: linear-gradient(135deg, rgba(64, 41, 29, 0.6), rgba(60, 30, 25, 0.6));
 }
 
 .loading-stage-icon {
@@ -1468,6 +1603,112 @@ ion-app {
   font-size: 0.75rem;
   color: var(--cask-gold-soft);
   font-weight: 500;
+}
+
+/* Substage Display */
+.loading-stage-substage {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--cask-gold-soft);
+}
+
+/* Activity Indicator (Dots) */
+.loading-stage-activity {
+  margin-top: 0.75rem;
+}
+
+.activity-indicator {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--cask-gold);
+  border-radius: 50%;
+  animation: activity-pulse 1.4s ease-in-out infinite;
+}
+
+.activity-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.activity-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes activity-pulse {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* Compliance Checks List */
+.compliance-checks-list {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid rgba(192, 138, 60, 0.2);
+}
+
+.compliance-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.compliance-check--pending {
+  color: var(--foam);
+  opacity: 0.5;
+}
+
+.compliance-check--checking {
+  color: var(--cask-gold-soft);
+  border: 1px solid rgba(192, 138, 60, 0.3);
+}
+
+.compliance-check--pass {
+  color: #59b275;
+  border: 1px solid rgba(89, 178, 117, 0.3);
+}
+
+.compliance-check--fail {
+  color: #d66554;
+  border: 1px solid rgba(214, 101, 84, 0.3);
+}
+
+.compliance-check--needs_review {
+  color: #f4a261;
+  border: 1px solid rgba(244, 162, 97, 0.3);
+}
+
+.compliance-check ion-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.compliance-check-spinner {
+  margin-left: auto;
+  font-size: 0.9rem;
 }
 
 .loading-stage-error {

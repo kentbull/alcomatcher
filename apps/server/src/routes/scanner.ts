@@ -234,6 +234,42 @@ scannerRouter.post("/api/scanner/sessions/:sessionId/images", uploadSingle.singl
   }
 });
 
+scannerRouter.post("/api/scanner/sessions/:sessionId/images/:imageId/assess-quality", async (req, res) => {
+  const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
+  const session = scannerSessionService.getSession(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
+  const quality = await scannerSessionService.assessImageQuality(req.params.sessionId, req.params.imageId);
+  if (!quality) return res.status(404).json({ error: "image_not_found", request_id: requestId });
+  return res.json({ imageId: req.params.imageId, ...quality, request_id: requestId });
+});
+
+scannerRouter.post("/api/scanner/sessions/:sessionId/images/:imageId/reshoot", uploadSingle.single("image"), async (req, res) => {
+  const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
+  try {
+    if (!req.file) return res.status(400).json({ error: "image_required", request_id: requestId });
+    const roleResult = uploadRoleSchema.safeParse(req.body.role);
+    if (!roleResult.success) return res.status(400).json({ error: "invalid_role", request_id: requestId });
+    const session = scannerSessionService.getSession(req.params.sessionId);
+    if (!session) return res.status(404).json({ error: "scan_session_not_found", request_id: requestId });
+
+    const role = roleResult.data as ScanImageRole;
+    const newImage = await scannerSessionService.reshootImage(req.params.sessionId, req.params.imageId, {
+      role,
+      image: req.file.buffer,
+      mimeType: req.file.mimetype
+    });
+    if (!newImage) return res.status(404).json({ error: "image_not_found", request_id: requestId });
+    return res.status(202).json({ sessionId: req.params.sessionId, image: newImage, request_id: requestId });
+  } catch (error) {
+    ensureNoMulterError(error, requestId);
+    return res.status(500).json({
+      error: "reshoot_failed",
+      detail: error instanceof Error ? error.message : "unknown_error",
+      request_id: requestId
+    });
+  }
+});
+
 scannerRouter.post("/api/scanner/sessions/:sessionId/finalize", async (req, res) => {
     const requestId = requestIdFromRequest(req as { headers: Record<string, unknown> });
     try {

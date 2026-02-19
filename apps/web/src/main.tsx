@@ -7,7 +7,7 @@ import { Preferences } from "@capacitor/preferences";
 import { CameraPreview } from "@capacitor-community/camera-preview";
 import { setupIonicReact } from "@ionic/react";
 import { IonApp, IonButton, IonContent, IonIcon, IonLoading, IonModal, IonPage, IonPopover, IonText } from "@ionic/react";
-import { add, arrowForwardOutline, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, timeOutline, trashOutline } from "ionicons/icons";
+import { add, arrowForwardOutline, close, logInOutline, logOutOutline, paperPlaneOutline, personCircleOutline, receiptOutline, refreshOutline, timeOutline, trashOutline } from "ionicons/icons";
 import "@ionic/react/css/core.css";
 import "@ionic/react/css/normalize.css";
 import "@ionic/react/css/structure.css";
@@ -83,6 +83,8 @@ interface LocalImage {
   uploadError?: string;
   retryCount: number;
   imageId?: string;
+  qualityStatus?: "assessing" | "good" | "reshoot";
+  qualityIssues?: string[];
 }
 
 interface ScanProgressEvent {
@@ -98,6 +100,9 @@ interface ScanProgressEvent {
     uploadState?: UploadState;
     errorCode?: string;
     errorMessage?: string;
+    qualityStatus?: "assessing" | "good" | "reshoot";
+    qualityIssues?: string[];
+    qualityScore?: number;
   };
 }
 
@@ -135,7 +140,11 @@ interface PendingCrdtCommit {
 
 interface HistoryItem {
   applicationId: string;
+  labelApplicationNumber: string;
+  brandName: string | null;
+  classType: string | null;
   status: string;
+  statusColor: "green" | "amber" | "red";
   syncState: "synced" | "pending_sync" | "sync_failed";
   updatedAt: string;
   summary: "pass" | "fail" | "needs_review" | null;
@@ -1259,12 +1268,25 @@ function App() {
           throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
         }
         stageClockRef.current.uploadEndedAt[roleKey] = Date.now();
+        const uploadedImageId = payload.image?.imageId;
         updateImageState(localId, {
           uploadState: payload.image?.uploadState ?? "ready",
           uploadError: undefined,
           retryCount: payload.image?.retryCount ?? 0,
-          imageId: payload.image?.imageId
+          imageId: uploadedImageId,
+          qualityStatus: "assessing"
         });
+        // Fire quality assessment asynchronously; result arrives via scan.progress SSE
+        if (uploadedImageId && resolvedSessionId) {
+          void apiFetch(
+            `${apiBase}/api/scanner/sessions/${resolvedSessionId}/images/${uploadedImageId}/assess-quality`,
+            { method: "POST" },
+            1,
+            400
+          ).catch(() => {
+            // Non-critical — quality assessment failure doesn't block scanning
+          });
+        }
       } catch (err) {
         updateImageState(localId, {
           uploadState: "failed",
@@ -1339,7 +1361,24 @@ function App() {
     }
     setFinalizing(true);
     setError("");
-    initProcessingStages(["ocr", "compliance_check"]);
+
+    // Initialize 4 stages: upload (already done), ocr, compliance_check, finalize
+    initProcessingStages(["upload", "ocr", "compliance_check", "finalize"]);
+
+    // Mark upload as already complete
+    completeStage("upload");
+
+    // Pre-populate compliance checks so they display immediately
+    updateStage("compliance_check", {
+      checks: [
+        { id: "brand_name_detected", label: "Brand Name", status: "pending" },
+        { id: "class_type_detected", label: "Class / Type", status: "pending" },
+        { id: "abv_detected", label: "Alcohol Content", status: "pending" },
+        { id: "net_contents_detected", label: "Net Contents", status: "pending" },
+        { id: "government_warning_present", label: "Government Warning", status: "pending" }
+      ]
+    });
+
     stageClockRef.current.finalizeStartedAt = Date.now();
     try {
       let resolvedSessionId = sessionId;
@@ -1351,7 +1390,13 @@ function App() {
         throw new Error("Unable to start scan session. Check network and retry.");
       }
       const telemetry = buildClientMetrics();
-      updateStage("ocr", { progress: 50 });
+
+      // Ensure SSE connection is established before making finalize call
+      if (applicationId) {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      // Make finalize API call - SSE will handle stage updates
       let response = await apiFetch(`${apiBase}/api/scanner/sessions/${resolvedSessionId}/finalize`, {
         method: "POST",
         headers: {
@@ -1363,7 +1408,7 @@ function App() {
           clientMetrics: telemetry.metrics
         })
       }, 2, 650);
-      completeStage("ocr");
+
       let payload = await response.json();
       if (!response.ok && response.status === 404 && payload.error === "scan_session_not_found") {
         const created = await createSession();
@@ -1376,7 +1421,9 @@ function App() {
       if (!response.ok) {
         throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
       }
-      completeStage("compliance_check");
+
+      // SSE events handle stage completion, but ensure finalize stage completes
+      // (in case SSE is delayed or connection issues)
       stageClockRef.current.finalizeEndedAt = Date.now();
       const finalizedApplicationId = String(payload.applicationId ?? applicationId ?? "");
       setApplicationId(finalizedApplicationId);
@@ -1387,6 +1434,7 @@ function App() {
         await queuePendingCrdtCommit(finalizedApplicationId, {
           kind: "scanner_finalize_commit",
           applicationId: finalizedApplicationId,
+          labelApplicationNumber: finalizedApplicationId.slice(0, 8).toUpperCase(),
           sessionId: resolvedSessionId,
           summary: payload.summary,
           confidence: payload.confidence,
@@ -1446,6 +1494,37 @@ function App() {
     [sortedImages.length]
   );
 
+  const resetScanner = useCallback(() => {
+    // Clear all images and scanner state
+    setImages([]);
+    setSessionId("");
+    setResult(null);
+    setReportVisible(false);
+    setError("");
+    setFinalizing(false);
+    setCaptureBusy(false);
+    setCapturePhase("front");
+    setProcessingStages([]);
+    setUploadProgress(0);
+
+    // Reset batch mode state
+    setLabelGroups([]);
+    setCurrentGroupId(null);
+
+    // Reset stage clock
+    stageClockRef.current = {
+      uploadStartedAt: {},
+      uploadEndedAt: {},
+      ocrStartedAt: {},
+      ocrEndedAt: {},
+      finalizeStartedAt: 0,
+      finalizeEndedAt: 0
+    };
+
+    // Create new session for next scan
+    void createSession();
+  }, [createSession]);
+
   useEffect(() => {
     if (typeof EventSource === "undefined" || !applicationId) return;
     let stream: EventSource | null = null;
@@ -1481,6 +1560,11 @@ function App() {
             if (payload.data?.stage === "image_upload_started") return { ...image, uploadState: "uploading" };
             if (payload.data?.stage === "image_upload_completed") return { ...image, uploadState: "processing" };
             if (payload.data?.stage === "image_checks_completed") return { ...image, uploadState: "ready" };
+            if (payload.data?.stage === "quality_assessed") {
+              const qStatus = payload.data?.qualityStatus as LocalImage["qualityStatus"];
+              const qIssues = Array.isArray(payload.data?.qualityIssues) ? payload.data.qualityIssues as string[] : [];
+              return { ...image, qualityStatus: qStatus, qualityIssues: qIssues };
+            }
             return image;
           })
         );
@@ -1508,6 +1592,90 @@ function App() {
       if (disposed) return;
       stream = new EventSource(streamUrl);
       stream.addEventListener("scan.progress", onProgress as EventListener);
+
+      // Handler for finalize progress events
+      const onFinalizeProgress = (event: MessageEvent) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type !== "scan.finalize.progress") return;
+          const data = payload.data;
+
+          // Update OCR stage
+          if (data.stage === "ocr") {
+            if (data.status === "started") {
+              updateStage("ocr", { status: "active", progress: 0 });
+            } else if (data.status === "in_progress") {
+              updateStage("ocr", {
+                progress: data.progress,
+                substage: data.substage
+              });
+            } else if (data.status === "completed") {
+              completeStage("ocr");
+            }
+          }
+
+          // Update compliance check stage
+          if (data.stage === "compliance_check") {
+            if (data.status === "started") {
+              updateStage("compliance_check", { status: "active", progress: 0 });
+            } else if (data.status === "in_progress") {
+              updateStage("compliance_check", {
+                progress: data.progress,
+                substage: data.checkLabel ? `Checking ${data.checkLabel}...` : undefined
+              });
+
+              // Update individual check status if we have check tracking
+              if (data.checkId && data.checkResult) {
+                setProcessingStages((current) =>
+                  current.map((stage) => {
+                    if (stage.id !== "compliance_check") return stage;
+
+                    const checks = stage.checks || [];
+                    const checkExists = checks.some((c) => c.id === data.checkId);
+
+                    const updatedChecks = checkExists
+                      ? checks.map((c) =>
+                          c.id === data.checkId
+                            ? { ...c, status: data.checkResult as "pass" | "fail" | "needs_review" }
+                            : c
+                        )
+                      : [
+                          ...checks,
+                          {
+                            id: data.checkId,
+                            label: data.checkLabel || data.checkId,
+                            status: data.checkResult as "pass" | "fail" | "needs_review"
+                          }
+                        ];
+
+                    return { ...stage, checks: updatedChecks };
+                  })
+                );
+              }
+            } else if (data.status === "completed") {
+              completeStage("compliance_check");
+            }
+          }
+
+          // Update finalize stage
+          if (data.stage === "finalize") {
+            if (data.status === "started") {
+              updateStage("finalize", { status: "active", progress: 0, substage: data.substage });
+            } else if (data.status === "in_progress") {
+              updateStage("finalize", {
+                progress: data.progress,
+                substage: data.substage
+              });
+            } else if (data.status === "completed") {
+              completeStage("finalize");
+            }
+          }
+        } catch {
+          // Ignore malformed SSE payloads
+        }
+      };
+
+      stream.addEventListener("scan.finalize.progress", onFinalizeProgress as EventListener);
     };
     void connect();
 
@@ -1714,11 +1882,21 @@ function App() {
                       <div className="scan-card-meta">
                         <span>{roleLabel(image.role, image.index)}</span>
                         <span>{STATUS_LABEL[image.uploadState]}</span>
+                        {image.qualityStatus && image.qualityStatus !== "assessing" ? (
+                          <span className={`quality-badge quality-badge--${image.qualityStatus}`}>
+                            {image.qualityStatus === "reshoot" ? "Reshoot" : "Good"}
+                          </span>
+                        ) : null}
                       </div>
                       {image.uploadState === "failed" ? (
                         <button className="retry-banner" type="button" onClick={() => void retryUpload(image.localId)}>
                           Upload failed. Tap to retry.
                         </button>
+                      ) : null}
+                      {image.qualityStatus === "reshoot" ? (
+                        <div className="reshoot-banner">
+                          Photo needs reshoot. Remove and retake.
+                        </div>
                       ) : null}
                     </article>
                   );
@@ -1777,6 +1955,19 @@ function App() {
                       : "Send"}
                 </span>
               </IonButton>
+
+              {/* Reset button (below Send button) */}
+              {result && (
+                <IonButton
+                  className="fab-reset"
+                  fill="clear"
+                  onClick={resetScanner}
+                  disabled={finalizing || captureBusy}
+                >
+                  <IonIcon icon={refreshOutline} />
+                  <span>New Label</span>
+                </IonButton>
+              )}
             </div>
 
             {error ? (
@@ -1845,7 +2036,7 @@ function App() {
           <IonModal isOpen={historyOpen} onDidDismiss={() => setHistoryOpen(false)} className="history-modal">
             <div className="history-overlay">
               <div className="report-header">
-                <strong>Submission History</strong>
+                <strong>Label Applications</strong>
                 <button type="button" className="report-close" onClick={() => setHistoryOpen(false)} aria-label="Close history">
                   <IonIcon icon={close} />
                 </button>
@@ -1861,13 +2052,17 @@ function App() {
                 {historyItems.map((item) => (
                   <button key={item.applicationId} type="button" className="history-item" onClick={() => void openHistoryDetail(item.applicationId)}>
                     <div className="history-item-top">
-                      <strong>{item.summary ? item.summary.toUpperCase() : item.status.toUpperCase()}</strong>
+                      <span className={`status-dot status-dot--${item.statusColor ?? "amber"}`} />
+                      <strong className="label-app-number">{item.labelApplicationNumber ?? item.applicationId.slice(0, 8).toUpperCase()}</strong>
+                      <span className="label-app-identity">
+                        {item.brandName ?? "Unknown Brand"} · {item.classType ?? "Unknown Class"}
+                      </span>
                       <span className={`sync-badge sync-${item.syncState}`}>{item.syncState}</span>
                     </div>
                     <div className="history-item-meta">
-                      <span>{new Date(item.updatedAt).toLocaleString()}</span>
+                      <span className="label-app-updated">{new Date(item.updatedAt).toLocaleString()}</span>
                       <span>{item.imageCount} image(s)</span>
-                      <span>{typeof item.confidence === "number" ? `${Math.round(item.confidence * 100)}% confidence` : "No confidence"}</span>
+                      {typeof item.confidence === "number" ? <span>{Math.round(item.confidence * 100)}% confidence</span> : null}
                     </div>
                   </button>
                 ))}
@@ -1877,7 +2072,7 @@ function App() {
           <IonModal isOpen={historyDetailOpen} onDidDismiss={() => setHistoryDetailOpen(false)} className="history-modal">
             <div className="history-overlay">
               <div className="report-header">
-                <strong>Submission Detail</strong>
+                <strong>Label Application Detail</strong>
                 <button type="button" className="report-close" onClick={() => setHistoryDetailOpen(false)} aria-label="Close history detail">
                   <IonIcon icon={close} />
                 </button>
@@ -2062,18 +2257,33 @@ function App() {
         backdropDismiss={false}
         className="processing-stages-modal"
       >
-        <IonContent className="ion-padding">
-          <div style={{ padding: "1rem" }}>
-            <h2 style={{ color: "var(--foam)", marginBottom: "1rem" }}>Processing Label</h2>
-            <LoadingStages
-              stages={processingStages}
-              onRetry={(stageId) => {
-                // Reset failed stage and retry
-                updateStage(stageId, { status: "active", errorMessage: undefined });
-                void finalizeScan();
-              }}
-            />
+        <IonContent>
+          <div className="processing-modal-header">
+            <h2>Processing Your Label</h2>
+            <p>Please wait while we analyze your submission</p>
           </div>
+
+          <LoadingStages
+            stages={processingStages}
+            onRetry={(stageId) => {
+              updateStage(stageId, { status: "active", errorMessage: undefined });
+              void finalizeScan();
+            }}
+          />
+
+          {/* Activity indicator when waiting for response */}
+          {finalizing && processingStages.every(s => s.status !== "active") && (
+            <div style={{ textAlign: "center", padding: "2rem" }}>
+              <div className="activity-indicator">
+                <div className="activity-dot" />
+                <div className="activity-dot" />
+                <div className="activity-dot" />
+              </div>
+              <p style={{ color: "var(--cask-gold-soft)", marginTop: "1rem", fontSize: "0.9rem" }}>
+                Communicating with server...
+              </p>
+            </div>
+          )}
         </IonContent>
       </IonModal>
 

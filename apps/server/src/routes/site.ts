@@ -310,6 +310,46 @@ siteRouter.get("/login", (req, res) => {
 </html>`);
 });
 
+siteRouter.get("/email-verified", (req, res) => {
+  const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
+  const deepLink = `alcomatcher://verify?email=${encodeURIComponent(email)}`;
+
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Email Verified — AlcoMatcher</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #2f1c14; color: #f6e7cf;
+           display: flex; align-items: center; justify-content: center;
+           min-height: 100vh; margin: 0; text-align: center; padding: 24px; }
+    .card { max-width: 400px; background: rgba(255,255,255,0.06); border-radius: 16px;
+            padding: 32px 24px; border: 1px solid rgba(230,193,138,0.2); }
+    h1 { color: #ffe7be; margin: 0 0 12px; font-size: 1.6rem; }
+    p  { color: rgba(248,230,201,0.85); line-height: 1.5; margin: 0 0 24px; }
+    a  { display: inline-block; background: #c08a3c; color: #fff;
+         padding: 12px 24px; border-radius: 10px; text-decoration: none;
+         font-weight: 600; }
+  </style>
+  <script>
+    window.onload = function() {
+      // Attempt to open the app via custom URL scheme.
+      // If app is installed the OS intercepts it; if not, the page stays visible.
+      setTimeout(function() { window.location.href = ${JSON.stringify(deepLink)}; }, 300);
+    };
+  </script>
+</head>
+<body>
+  <div class="card">
+    <h1>Email Verified</h1>
+    <p>Your email has been confirmed. Opening AlcoMatcher&hellip;</p>
+    <a href="${deepLink.replace(/"/g, "&quot;")}">Open AlcoMatcher</a>
+  </div>
+</body>
+</html>`);
+});
+
 siteRouter.get("/register", (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">

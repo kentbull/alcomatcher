@@ -54,6 +54,53 @@ export function LoadingStages({ stages, onRetry }: LoadingStagesProps) {
               <ProgressIndicator progress={stage.progress} />
             )}
 
+            {/* Substage display */}
+            {stage.status === "active" && stage.substage && (
+              <div className="loading-stage-substage">
+                <IonText color="medium">
+                  <span>{stage.substage}</span>
+                </IonText>
+              </div>
+            )}
+
+            {/* Activity indicator for active stages without progress */}
+            {stage.status === "active" && stage.progress === undefined && !stage.substage && (
+              <div className="loading-stage-activity">
+                <div className="activity-indicator">
+                  <div className="activity-dot" />
+                  <div className="activity-dot" />
+                  <div className="activity-dot" />
+                </div>
+              </div>
+            )}
+
+            {/* Compliance checks breakdown */}
+            {stage.id === "compliance_check" && stage.checks && stage.checks.length > 0 && (
+              <div className="compliance-checks-list">
+                {stage.checks.map((check) => (
+                  <div key={check.id} className={`compliance-check compliance-check--${check.status}`}>
+                    <IonIcon
+                      icon={
+                        check.status === "pass"
+                          ? checkmarkCircle
+                          : check.status === "fail"
+                            ? closeCircle
+                            : check.status === "checking"
+                              ? ellipse
+                              : ellipse
+                      }
+                    />
+                    <span>{check.label}</span>
+                    {check.status === "checking" && (
+                      <div className="compliance-check-spinner">
+                        <IonIcon icon={ellipse} className="spinner-pulse" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {stage.status === "error" && (
               <div className="loading-stage-error">
                 <IonText color="danger">

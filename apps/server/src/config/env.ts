@@ -36,6 +36,7 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "true"),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
   AUTH_SEED_USERS: z
     .string()
     .default(

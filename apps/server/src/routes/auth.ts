@@ -17,7 +17,13 @@ const verifyOtpSchema = z.object({
 });
 
 const registerRequestSchema = z.object({
-  email: emailSchema
+  email: emailSchema,
+  mobile: z.boolean().optional()
+});
+
+const deleteAccountSchema = z.object({
+  otpCode: z.string().min(4).max(12),
+  confirmationText: z.string().min(1)
 });
 
 const listUsersQuerySchema = z.object({
@@ -35,7 +41,8 @@ authRouter.post("/api/auth/register/request", async (req, res) => {
   try {
     const result = await authService.requestRegistration(parsed.data.email, {
       ip: req.ip,
-      userAgent: req.get("user-agent") ?? undefined
+      userAgent: req.get("user-agent") ?? undefined,
+      mobile: parsed.data.mobile ?? false
     });
     return res.status(202).json({ status: "queued", ...result });
   } catch (error) {
@@ -61,8 +68,8 @@ authRouter.get("/api/auth/register/verify", async (req, res) => {
       return res.status(400).type("html").send("<h1>Verification failed</h1><p>This link is invalid or expired.</p>");
     }
 
-    const loginUrl = `/login?verified=1&email=${encodeURIComponent(result.email)}`;
-    return res.redirect(302, loginUrl);
+    const fallbackUrl = `/email-verified?email=${encodeURIComponent(result.email)}`;
+    return res.redirect(302, fallbackUrl);
   } catch {
     return res.status(500).type("html").send("<h1>Verification error</h1><p>Please retry shortly.</p>");
   }
@@ -138,6 +145,39 @@ authRouter.post("/api/auth/logout", requireAuth, (_req, res) => {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader("Set-Cookie", `alcomatcher_token=; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=0`);
   return res.status(204).send();
+});
+
+authRouter.post("/api/auth/account/delete", requireAuth, async (req, res) => {
+  if (!req.authUser) return res.status(401).json({ error: "auth_required" });
+  const parsed = deleteAccountSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    await authService.deleteAccountForUser(req.authUser, parsed.data.otpCode, parsed.data.confirmationText);
+    const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    res.setHeader("Set-Cookie", `alcomatcher_token=; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=0`);
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof Error && error.message === "invalid_confirmation") {
+      return res.status(400).json({ error: "invalid_confirmation" });
+    }
+    if (error instanceof Error && (error.message === "otp_invalid" || error.message === "otp_challenge_not_found")) {
+      return res.status(401).json({ error: "otp_invalid_or_expired" });
+    }
+    if (error instanceof Error && error.message === "rate_limited") {
+      return res.status(429).json({ error: "rate_limited" });
+    }
+    if (error instanceof Error && error.message === "otp_user_mismatch") {
+      return res.status(401).json({ error: "otp_invalid_or_expired" });
+    }
+    if (error instanceof Error && error.message === "last_manager_cannot_delete") {
+      return res.status(409).json({ error: "last_manager_cannot_delete" });
+    }
+    if (error instanceof Error && error.message === "email_not_verified") {
+      return res.status(403).json({ error: "email_not_verified" });
+    }
+    return res.status(500).json({ error: "account_delete_failed" });
+  }
 });
 
 authRouter.get("/api/events/stream-auth-ticket", requireAuth, (req, res) => {

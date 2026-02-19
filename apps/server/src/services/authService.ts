@@ -1,4 +1,6 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 import { authStore } from "./authStore.js";
@@ -122,9 +124,12 @@ export class AuthService {
 
   private async ensureSeedUsers() {
     if (this.seeded) return;
-    const users = parseSeedUsers();
-    for (const user of users) {
-      await authStore.upsertUser(user.email, user.role);
+    const count = await authStore.countUsers();
+    if (count === 0) {
+      const users = parseSeedUsers();
+      for (const user of users) {
+        await authStore.upsertUser(user.email, user.role);
+      }
     }
     if (isAppleReviewOverrideEnabled()) {
       await authStore.upsertUser(env.APPLE_REVIEW_EMAIL, "compliance_officer");
@@ -177,9 +182,16 @@ export class AuthService {
     return { providerMessageId: typeof payload.id === "string" ? payload.id : undefined };
   }
 
-  private async sendRegistrationVerificationEmail(email: string, verificationToken: string): Promise<void> {
+  private async sendRegistrationVerificationEmail(email: string, verificationToken: string, mobile: boolean): Promise<void> {
     requireResendConfigured();
     const verifyUrl = `${env.APP_BASE_URL}/api/auth/register/verify?token=${encodeURIComponent(verificationToken)}`;
+    const subject = mobile
+      ? "Verify and Open AlcoMatcher"
+      : "Verify your AlcoMatcher account";
+    const ctaText = mobile ? "Verify and Open App" : "Verify Email";
+    const bodyLine = mobile
+      ? "Tap below to verify your email and return directly to the AlcoMatcher app."
+      : "Verify your account:";
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -189,8 +201,8 @@ export class AuthService {
       body: JSON.stringify({
         from: env.RESEND_FROM_EMAIL,
         to: [email],
-        subject: "Verify your AlcoMatcher account",
-        html: `<p>Welcome to AlcoMatcher.</p><p>Verify your account:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>This link expires in ${env.EMAIL_VERIFY_TTL_MINUTES} minutes.</p>`
+        subject,
+        html: `<p>Welcome to AlcoMatcher.</p><p>${bodyLine}</p><p><a href="${verifyUrl}">${ctaText}</a></p><p>This link expires in ${env.EMAIL_VERIFY_TTL_MINUTES} minutes.</p>`
       })
     });
 
@@ -207,7 +219,7 @@ export class AuthService {
     }
   }
 
-  async requestRegistration(rawEmail: string, context?: { ip?: string; userAgent?: string }): Promise<{ ok: true; expiresInMinutes: number; debugVerifyUrl?: string }> {
+  async requestRegistration(rawEmail: string, context?: { ip?: string; userAgent?: string; mobile?: boolean }): Promise<{ ok: true; expiresInMinutes: number; debugVerifyUrl?: string }> {
     await this.ensureSeedUsers();
     const email = normalizeEmail(rawEmail);
     if (!checkRateLimit(`register:${email}`, env.REGISTER_RATE_LIMIT_MAX, env.REGISTER_RATE_LIMIT_WINDOW_SEC)) {
@@ -229,7 +241,8 @@ export class AuthService {
       verificationToken: token,
       expiresAt,
       requestedIp: context?.ip,
-      requestedUserAgent: context?.userAgent
+      requestedUserAgent: context?.userAgent,
+      mobileSignup: context?.mobile ?? false
     });
 
     return {
@@ -429,6 +442,27 @@ export class AuthService {
     return authStore.setUserActive(targetUserId, isActive, actorUserId);
   }
 
+  async deleteAccountForUser(user: AuthUser, otpCode: string, confirmationText: string): Promise<void> {
+    await this.ensureSeedUsers();
+    if (confirmationText.trim().toUpperCase() !== "DELETE") {
+      throw new Error("invalid_confirmation");
+    }
+    const verified = await this.verifyOtp(user.email, otpCode);
+    if (verified.user.userId !== user.userId) {
+      throw new Error("otp_user_mismatch");
+    }
+
+    const result = await authStore.deleteUserAccountAndOwnedData(user.userId);
+    if (!result.deleted) {
+      throw new Error("user_not_found");
+    }
+
+    for (const applicationId of result.deletedApplicationIds) {
+      const dir = join(env.HISTORY_IMAGE_STORAGE_ROOT, applicationId);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
   async dispatchPendingVerificationEmails(limit = 10): Promise<{ processed: number; sent: number; failed: number }> {
     await this.ensureSeedUsers();
     try {
@@ -448,7 +482,7 @@ export class AuthService {
       if (!challenge) continue;
 
       try {
-        await this.sendRegistrationVerificationEmail(challenge.email, challenge.verificationToken);
+        await this.sendRegistrationVerificationEmail(challenge.email, challenge.verificationToken, challenge.mobileSignup);
         await authStore.markVerificationEmailSent(job.challengeId);
         sent += 1;
       } catch (error) {

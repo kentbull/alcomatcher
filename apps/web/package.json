@@ -16,6 +16,7 @@
   "dependencies": {
     "@capacitor-community/camera-preview": "^7.0.4",
     "@capacitor/android": "^7.5.0",
+    "@capacitor/app": "^7.1.2",
     "@capacitor/camera": "^7.0.4",
     "@capacitor/core": "^7.5.0",
     "@capacitor/ios": "^7.5.0",

@@ -42,6 +42,20 @@ const RULES: Record<string, DistilledSpiritsRuleMeta> = {
     citationRef: "27 CFR Part 16",
     label: "Government Warning"
   },
+  gov_warning_text_exact: {
+    checkId: "gov_warning_text_exact",
+    ruleId: "27-cfr-16.21-warning-text",
+    severity: "hard_fail",
+    citationRef: "27 CFR 16.21",
+    label: "Government Warning Text (Exact)"
+  },
+  gov_warning_capitalization: {
+    checkId: "gov_warning_capitalization",
+    ruleId: "27-cfr-16.21-warning-caps",
+    severity: "hard_fail",
+    citationRef: "27 CFR 16.21",
+    label: "Government Warning Capitalization"
+  },
   brand_name_match: {
     checkId: "brand_name_match",
     ruleId: "expected-brand-match",

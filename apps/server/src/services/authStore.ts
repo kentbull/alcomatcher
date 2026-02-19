@@ -38,6 +38,7 @@ interface VerificationChallengeRow {
   send_attempt_count: number;
   last_attempt_at: Date | null;
   next_attempt_at: Date | null;
+  mobile_signup: boolean;
   created_at: Date;
 }
 
@@ -191,6 +192,7 @@ export class AuthStore {
     await this.pool.query("ALTER TABLE otp_email_jobs ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;");
     await this.pool.query("ALTER TABLE otp_email_jobs ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;");
     await this.pool.query("ALTER TABLE otp_email_jobs ADD COLUMN IF NOT EXISTS last_error TEXT;");
+    await this.pool.query("ALTER TABLE email_verification_challenges ADD COLUMN IF NOT EXISTS mobile_signup BOOLEAN NOT NULL DEFAULT FALSE;");
 
     this.schemaReady = true;
   }
@@ -559,6 +561,7 @@ export class AuthStore {
     requestedIp?: string;
     requestedUserAgent?: string;
     verificationToken: string;
+    mobileSignup?: boolean;
   }): Promise<void> {
     await this.ensureSchema();
     await this.pool.query(
@@ -575,9 +578,10 @@ export class AuthStore {
         next_attempt_at,
         requested_ip,
         requested_user_agent,
+        mobile_signup,
         created_at
       )
-      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, 'queued', 0, NOW(), $7, $8, NOW())
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, 'queued', 0, NOW(), $7, $8, $9, NOW())
       `,
       [
         randomUUID(),
@@ -587,7 +591,8 @@ export class AuthStore {
         input.verificationToken,
         input.expiresAt,
         input.requestedIp ?? null,
-        input.requestedUserAgent ?? null
+        input.requestedUserAgent ?? null,
+        input.mobileSignup ?? false
       ]
     );
   }
@@ -659,11 +664,11 @@ export class AuthStore {
     return rows.map((row) => ({ challengeId: row.challenge_id, email: row.email }));
   }
 
-  async getVerificationChallenge(challengeId: string): Promise<{ challengeId: string; email: string; verificationToken: string; expiresAt: string } | null> {
+  async getVerificationChallenge(challengeId: string): Promise<{ challengeId: string; email: string; verificationToken: string; expiresAt: string; mobileSignup: boolean } | null> {
     await this.ensureSchema();
     const { rows } = await this.pool.query<VerificationChallengeRow>(
       `
-      SELECT challenge_id, user_id, email, token_hash, verification_token, expires_at, consumed_at, email_job_status, email_job_error, send_attempt_count, last_attempt_at, next_attempt_at, created_at
+      SELECT challenge_id, user_id, email, token_hash, verification_token, expires_at, consumed_at, email_job_status, email_job_error, send_attempt_count, last_attempt_at, next_attempt_at, mobile_signup, created_at
       FROM email_verification_challenges
       WHERE challenge_id = $1::uuid
       LIMIT 1
@@ -676,7 +681,8 @@ export class AuthStore {
       challengeId: row.challenge_id,
       email: row.email,
       verificationToken: row.verification_token,
-      expiresAt: row.expires_at.toISOString()
+      expiresAt: row.expires_at.toISOString(),
+      mobileSignup: row.mobile_signup
     };
   }
 
@@ -871,6 +877,135 @@ export class AuthStore {
       );
       await client.query("COMMIT");
       return mapUserRow(updated.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async countUsers(): Promise<number> {
+    await this.ensureSchema();
+    const { rows } = await this.pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM auth_users");
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async countActiveManagers(): Promise<number> {
+    await this.ensureSchema();
+    const { rows } = await this.pool.query<{ count: string }>(
+      `
+      SELECT COUNT(*)::text AS count
+      FROM auth_users
+      WHERE role = 'compliance_manager'
+        AND is_active = TRUE
+      `
+    );
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async deleteUserAccountAndOwnedData(userId: string): Promise<{ deleted: boolean; deletedApplicationIds: string[] }> {
+    await this.ensureSchema();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query<{ user_id: string; role: UserRole; is_active: boolean }>(
+        `
+        SELECT user_id, role, is_active
+        FROM auth_users
+        WHERE user_id = $1::uuid
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [userId]
+      );
+      const user = existing.rows[0];
+      if (!user) {
+        await client.query("ROLLBACK");
+        return { deleted: false, deletedApplicationIds: [] };
+      }
+
+      if (user.role === "compliance_manager" && user.is_active) {
+        const managers = await client.query<{ count: string }>(
+          `
+          SELECT COUNT(*)::text AS count
+          FROM auth_users
+          WHERE role = 'compliance_manager'
+            AND is_active = TRUE
+          `
+        );
+        const activeManagers = Number(managers.rows[0]?.count ?? 0);
+        if (activeManagers <= 1) {
+          throw new Error("last_manager_cannot_delete");
+        }
+      }
+
+      const ownedAppsResult = await client.query<{ application_id: string }>(
+        `
+        WITH owner_events AS (
+          SELECT
+            application_id,
+            COALESCE(NULLIF(payload->>'ownerUserId', ''), NULLIF(payload->>'actorUserId', '')) AS owner_user_id,
+            created_at,
+            event_id
+          FROM application_events
+          WHERE event_type IN ('OwnershipClaimed', 'ApplicationCreated')
+        ),
+        latest_owner AS (
+          SELECT DISTINCT ON (application_id)
+            application_id,
+            owner_user_id
+          FROM owner_events
+          WHERE owner_user_id IS NOT NULL
+          ORDER BY application_id, created_at DESC, event_id DESC
+        )
+        SELECT application_id
+        FROM latest_owner
+        WHERE owner_user_id = $1
+        `,
+        [userId]
+      );
+      const applicationIds = ownedAppsResult.rows.map((row) => row.application_id);
+
+      if (applicationIds.length > 0) {
+        await client.query(
+          `
+          DELETE FROM batch_item_attempts
+          WHERE batch_item_id IN (
+            SELECT bi.batch_item_id
+            FROM batch_items bi
+            JOIN batch_jobs bj ON bj.batch_id = bi.batch_id
+            WHERE bj.application_id = ANY($1::uuid[])
+          )
+          `,
+          [applicationIds]
+        );
+        await client.query(
+          `
+          DELETE FROM batch_items
+          WHERE batch_id IN (
+            SELECT batch_id
+            FROM batch_jobs
+            WHERE application_id = ANY($1::uuid[])
+          )
+          `,
+          [applicationIds]
+        );
+        await client.query("DELETE FROM batch_jobs WHERE application_id = ANY($1::uuid[])", [applicationIds]);
+        await client.query("DELETE FROM submission_images WHERE application_id = ANY($1::uuid[])", [applicationIds]);
+        await client.query("DELETE FROM application_crdt_ops WHERE application_id = ANY($1::uuid[])", [applicationIds]);
+        await client.query("DELETE FROM application_events WHERE application_id = ANY($1::uuid[])", [applicationIds]);
+        await client.query("DELETE FROM label_applications WHERE application_id = ANY($1::uuid[])", [applicationIds]);
+      }
+
+      await client.query("DELETE FROM otp_email_jobs WHERE user_id = $1::uuid", [userId]);
+      await client.query("DELETE FROM otp_challenges WHERE user_id = $1::uuid", [userId]);
+      await client.query("DELETE FROM email_verification_challenges WHERE user_id = $1::uuid", [userId]);
+      await client.query("DELETE FROM auth_role_audit WHERE target_user_id = $1::uuid OR changed_by_user_id = $1::uuid", [userId]);
+
+      const deleted = await client.query("DELETE FROM auth_users WHERE user_id = $1::uuid", [userId]);
+      await client.query("COMMIT");
+      return { deleted: (deleted.rowCount ?? 0) > 0, deletedApplicationIds: applicationIds };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

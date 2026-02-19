@@ -11,7 +11,7 @@ export type ApplicationStatus =
   | "batch_partially_failed"
   | "batch_completed";
 
-export interface ComplianceApplicationDoc {
+export interface LabelApplicationDoc {
   applicationId: string;
   documentId: string;
   regulatoryProfile: RegulatoryProfile;
@@ -22,7 +22,19 @@ export interface ComplianceApplicationDoc {
   status: ApplicationStatus;
   checks: ComplianceCheck[];
   syncState: "synced" | "pending_sync" | "sync_failed";
+  brandName?: string;
+  classType?: string;
   updatedAt: string;
+}
+
+/** @deprecated Use LabelApplicationDoc */
+export type ComplianceApplicationDoc = LabelApplicationDoc;
+
+export type LabelApplicationStatusColor = "green" | "amber" | "red";
+export function labelApplicationStatusColor(status: ApplicationStatus): LabelApplicationStatusColor {
+  if (status === "matched" || status === "approved") return "green";
+  if (status === "rejected" || status === "batch_partially_failed") return "red";
+  return "amber";
 }
 
 export interface ComplianceCheck {
@@ -53,7 +65,11 @@ export interface ComplianceEvent {
     | "BatchCompleted"
     | "SyncMerged"
     | "ScannerQuickCheckRecorded"
-    | "OwnershipClaimed";
+    | "OwnershipClaimed"
+    | "ImageNormalizationCompleted"
+    | "OcrCompleted"
+    | "ExtractionCompleted"
+    | "ComplianceChecksCompleted";
   payload: Record<string, unknown>;
   createdAt: string;
 }
