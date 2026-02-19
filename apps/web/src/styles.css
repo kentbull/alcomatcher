@@ -340,7 +340,7 @@ ion-app {
 
 .scanner-actions {
   display: grid;
-  grid-template-columns: 1fr auto auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: end;
   gap: 0.48rem;
   min-height: 92px;
@@ -365,8 +365,9 @@ ion-app {
   --color: #f8e9cf;
   --background: transparent;
   justify-self: center;
-  display: grid;
-  gap: 0.22rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .fab-plus .fab-plus-inner {
@@ -395,10 +396,9 @@ ion-app {
 .fab-send {
   --background: transparent;
   --color: #f6e8cf;
-  justify-self: start;
+  justify-self: end;
   display: grid;
   gap: 0.14rem;
-  margin-left: 1rem;
 }
 
 .fab-send ion-icon {

@@ -1679,8 +1679,19 @@ function App() {
             />
 
             <div className="scanner-actions">
-              {/* Empty left spacer for centering */}
-              <span />
+              {result ? (
+                <IonButton
+                  className="report-button"
+                  fill="clear"
+                  size="default"
+                  onClick={() => setReportVisible(true)}
+                >
+                  <IonIcon icon={receiptOutline} slot="start" />
+                  Report
+                </IonButton>
+              ) : (
+                <span />
+              )}
 
               <IonButton
                 className="fab-plus"
@@ -1691,7 +1702,6 @@ function App() {
                 <div className="fab-plus-inner">
                   <IonIcon icon={add} />
                 </div>
-                <span>{scanButtonLabel}</span>
               </IonButton>
 
               <IonButton
@@ -1715,22 +1725,6 @@ function App() {
                       : "Send"}
                 </span>
               </IonButton>
-
-              {/* Report button positioned separately if results exist */}
-              {result ? (
-                <IonButton
-                  className="report-button"
-                  fill="clear"
-                  size="default"
-                  onClick={() => setReportVisible(true)}
-                  style={{ gridColumn: '1', justifySelf: 'start' }}
-                >
-                  <IonIcon icon={receiptOutline} slot="start" />
-                  Report
-                </IonButton>
-              ) : (
-                <span />
-              )}
             </div>
 
             <section className="scan-card-dock">
