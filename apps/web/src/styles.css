@@ -772,6 +772,124 @@ ion-app {
   }
 }
 
+/* Batch Scanning Components */
+.scan-mode-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.5rem;
+  background: rgba(28, 16, 11, 0.3);
+  border-radius: 8px;
+}
+
+.scan-mode-toggle ion-button {
+  flex: 1;
+  --padding-start: 0.5rem;
+  --padding-end: 0.5rem;
+  height: 36px;
+  font-size: 0.85rem;
+}
+
+.label-group-divider {
+  position: relative;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(237, 196, 131, 0.4), transparent);
+  margin: 1rem 0;
+}
+
+.label-group-divider::after {
+  content: attr(data-label);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--wood-dark);
+  padding: 0.2rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid rgba(237, 196, 131, 0.4);
+  font-size: 0.75rem;
+  color: var(--cask-gold-soft);
+  font-weight: 600;
+}
+
+.batch-summary {
+  padding: 1rem;
+}
+
+.batch-summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.batch-stat {
+  text-align: center;
+  padding: 1rem;
+  background: rgba(28, 16, 11, 0.3);
+  border-radius: 8px;
+  border: 1px solid rgba(237, 196, 131, 0.2);
+}
+
+.batch-stat h2 {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.batch-stat p {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.85rem;
+}
+
+.batch-summary-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.batch-summary-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(28, 16, 11, 0.3);
+  border-radius: 8px;
+  border: 1px solid rgba(237, 196, 131, 0.2);
+}
+
+.batch-summary-group-icon {
+  font-size: 1.5rem;
+}
+
+.batch-summary-group-info {
+  flex: 1;
+}
+
+.batch-summary-group-info h4 {
+  margin: 0 0 0.2rem 0;
+  font-size: 0.95rem;
+  color: var(--foam);
+}
+
+.batch-summary-group-info p {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.batch-summary-group-status span {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.batch-summary-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
 /* Capture Guide Components */
 .capture-guide {
   position: absolute;

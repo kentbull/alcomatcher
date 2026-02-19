@@ -21,6 +21,8 @@ import { SyncQueueModal } from "./components/SyncQueueModal";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { useSyncQueue } from "./hooks/useSyncQueue";
 import { preprocessImageForOCR } from "./utils/imagePreprocessing";
+import type { ScanMode, LabelGroup } from "./types/labelGroup";
+import { BatchSummary } from "./components/BatchSummary";
 
 setupIonicReact();
 
@@ -302,6 +304,10 @@ function App() {
   const [processingStages, setProcessingStages] = useState<ProcessingStage[]>([]);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [syncQueueOpen, setSyncQueueOpen] = useState(false);
+  const [scanMode, setScanMode] = useState<ScanMode>("single");
+  const [labelGroups, setLabelGroups] = useState<LabelGroup[]>([]);
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+  const [batchSummaryOpen, setBatchSummaryOpen] = useState(false);
 
   // Offline/sync monitoring
   const isOnline = useOnlineStatus();
@@ -1142,6 +1148,35 @@ function App() {
     });
   }, []);
 
+  // Batch mode label group management
+  const createNewGroup = useCallback(() => {
+    const group: LabelGroup = {
+      id: crypto.randomUUID(),
+      imageIds: [],
+      status: "capturing",
+      createdAt: new Date().toISOString()
+    };
+    setLabelGroups((prev) => [...prev, group]);
+    setCurrentGroupId(group.id);
+    return group;
+  }, []);
+
+  const completeCurrentGroup = useCallback(() => {
+    if (!currentGroupId) return;
+    setLabelGroups((prev) =>
+      prev.map((g) => (g.id === currentGroupId ? { ...g, status: "complete" as const } : g))
+    );
+  }, [currentGroupId]);
+
+  const addImageToCurrentGroup = useCallback((imageId: string) => {
+    if (!currentGroupId) return;
+    setLabelGroups((prev) =>
+      prev.map((g) =>
+        g.id === currentGroupId ? { ...g, imageIds: [...g.imageIds, imageId] } : g
+      )
+    );
+  }, [currentGroupId]);
+
   const updateImageState = useCallback((localId: string, patch: Partial<LocalImage>) => {
     setImages((current) => current.map((image) => (image.localId === localId ? { ...image, ...patch } : image)));
   }, []);
@@ -1553,6 +1588,44 @@ function App() {
                 onTap={() => setSyncQueueOpen(true)}
               />
 
+              {/* Scan Mode Toggle */}
+              {!result && (
+                <div className="scan-mode-toggle">
+                  <IonButton
+                    fill={scanMode === "single" ? "solid" : "outline"}
+                    size="small"
+                    onClick={() => {
+                      setScanMode("single");
+                      setLabelGroups([]);
+                      setCurrentGroupId(null);
+                    }}
+                  >
+                    Single Label
+                  </IonButton>
+                  <IonButton
+                    fill={scanMode === "batch" ? "solid" : "outline"}
+                    size="small"
+                    onClick={() => {
+                      setScanMode("batch");
+                      if (labelGroups.length === 0) {
+                        createNewGroup();
+                      }
+                    }}
+                  >
+                    Batch Mode
+                  </IonButton>
+                </div>
+              )}
+
+              {/* Batch mode info */}
+              {scanMode === "batch" && labelGroups.length > 0 && (
+                <IonText color="medium">
+                  <p style={{ fontSize: "0.85rem", textAlign: "center", margin: "0.5rem 0" }}>
+                    Label {labelGroups.length} • {images.length} image{images.length !== 1 ? "s" : ""} total
+                  </p>
+                </IonText>
+              )}
+
               {isNativeIos ? null : (
                 <>
                   <div className="step-row" role="status" aria-live="polite">
@@ -1624,11 +1697,23 @@ function App() {
               <IonButton
                 className="fab-send"
                 fill="clear"
-                onClick={() => void finalizeScan()}
+                onClick={() => {
+                  if (scanMode === "batch" && labelGroups.length > 0) {
+                    setBatchSummaryOpen(true);
+                  } else {
+                    void finalizeScan();
+                  }
+                }}
                 disabled={!canFinalize || captureBusy}
               >
                 <IonIcon icon={paperPlaneOutline} />
-                <span>{finalizing ? "Sending..." : "Send"}</span>
+                <span>
+                  {finalizing
+                    ? "Sending..."
+                    : scanMode === "batch"
+                      ? "Review"
+                      : "Send"}
+                </span>
               </IonButton>
 
               {/* Report button positioned separately if results exist */}
@@ -1979,6 +2064,23 @@ function App() {
               }}
             />
           </div>
+        </IonContent>
+      </IonModal>
+
+      {/* Batch Summary Modal */}
+      <IonModal isOpen={batchSummaryOpen} onDidDismiss={() => setBatchSummaryOpen(false)}>
+        <IonContent>
+          <BatchSummary
+            groups={labelGroups}
+            totalImages={images.length}
+            onSendBatch={() => {
+              // In full implementation, this would send all groups
+              setBatchSummaryOpen(false);
+              void finalizeScan();
+            }}
+            onCancel={() => setBatchSummaryOpen(false)}
+            isSending={finalizing}
+          />
         </IonContent>
       </IonModal>
 
