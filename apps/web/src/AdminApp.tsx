@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AdminNavbar } from "./components/admin/AdminNavbar";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
+import { AdminListView } from "./pages/admin/AdminListView";
 import "./styles.css";
 
 interface AuthUser {
@@ -98,14 +99,7 @@ export const AdminApp: React.FC = () => {
             path="/admin/applications"
             element={
               isAuthenticated && isManager ? (
-                <div style={{
-                  padding: "calc(60px + 2rem) 2rem 2rem",
-                  background: "var(--admin-bg)",
-                  minHeight: "100vh",
-                  color: "var(--text-primary)",
-                }}>
-                  Applications list (coming soon in Phase 2)
-                </div>
+                <AdminListView />
               ) : (
                 <Navigate to="/login" replace />
               )

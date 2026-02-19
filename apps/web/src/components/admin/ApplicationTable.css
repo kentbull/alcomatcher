@@ -1,0 +1,140 @@
+.application-table-wrapper {
+  overflow-x: auto;
+  border-radius: 12px;
+}
+
+.application-table {
+  width: 100%;
+  min-width: 800px;
+}
+
+.application-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s;
+}
+
+.application-table th.sortable:hover {
+  color: var(--cask-gold-soft);
+}
+
+.application-table tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+.application-table tbody tr.clickable-row:hover {
+  background: rgba(192, 138, 60, 0.12);
+}
+
+.app-id-cell {
+  font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code", monospace;
+  font-size: 0.85rem;
+}
+
+.app-id {
+  color: var(--cask-gold-soft);
+}
+
+.brand-cell {
+  font-weight: 600;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-muted {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.sync-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.sync-icon--synced {
+  color: var(--status-pass);
+  background: rgba(65, 171, 91, 0.15);
+}
+
+.sync-icon--pending_sync {
+  color: var(--status-review);
+  background: rgba(223, 163, 59, 0.15);
+}
+
+.sync-icon--sync_failed {
+  color: var(--status-fail);
+  background: rgba(196, 71, 55, 0.15);
+}
+
+.confidence-cell {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.confidence-value {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.confidence-high {
+  color: #b8f3c6;
+  background: rgba(65, 171, 91, 0.15);
+}
+
+.confidence-medium {
+  color: #f5d99f;
+  background: rgba(223, 163, 59, 0.15);
+}
+
+.confidence-low {
+  color: #f5a9a0;
+  background: rgba(196, 71, 55, 0.15);
+}
+
+.timestamp-cell {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.action-column {
+  width: 100px;
+  text-align: center;
+}
+
+.application-table-empty {
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--admin-card);
+  border: 1px solid var(--admin-card-border);
+  border-radius: 12px;
+}
+
+@media (max-width: 768px) {
+  .application-table-wrapper {
+    border-radius: 8px;
+  }
+
+  .application-table {
+    min-width: 100%;
+    font-size: 0.85rem;
+  }
+
+  .brand-cell {
+    max-width: 120px;
+  }
+
+  .action-column {
+    width: 80px;
+  }
+}
