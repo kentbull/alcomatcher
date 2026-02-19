@@ -2073,40 +2073,42 @@ function App() {
             </div>
           </IonModal>
           <IonModal isOpen={historyDetailOpen} onDidDismiss={() => setHistoryDetailOpen(false)} className="history-modal">
-            <div className="history-overlay">
-              <div className="report-header">
-                <strong>Label Application Detail</strong>
-                <button type="button" className="report-close" onClick={() => setHistoryDetailOpen(false)} aria-label="Close history detail">
-                  <IonIcon icon={close} />
-                </button>
-              </div>
-              {historyDetailLoading ? <p className="auth-info">Loading history detail...</p> : null}
-              {historyDetail ? (
-                <div className="history-detail">
-                  <div className="history-item-top">
-                    <strong>{historyDetail.application.status.toUpperCase()}</strong>
-                    <span className={`sync-badge sync-${historyDetail.application.syncState}`}>{historyDetail.application.syncState}</span>
-                  </div>
-                  <p className="auth-info">{new Date(historyDetail.application.updatedAt).toLocaleString()}</p>
-                  <div className="history-images">
-                    {historyDetail.images.map((image) => (
-                      <div key={image.imageId} className="history-image-link">
-                        <img src={image.thumbSrc ?? `${apiBase}${image.thumbUrl}`} alt={`${image.role} ${image.index}`} />
-                        <span>{image.role} {image.index + 1}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="history-checks">
-                    {(historyDetail.report.checks ?? []).map((check) => (
-                      <div key={check.checkId} className={`history-check check-${check.status}`}>
-                        <strong>{check.label}</strong>
-                        <p>{check.evidenceText || check.failureReason || "No details provided."}</p>
-                      </div>
-                    ))}
-                  </div>
+            <IonContent className="history-content">
+              <div className="history-overlay">
+                <div className="report-header">
+                  <strong>Label Application Detail</strong>
+                  <button type="button" className="report-close" onClick={() => setHistoryDetailOpen(false)} aria-label="Close history detail">
+                    <IonIcon icon={close} />
+                  </button>
                 </div>
-              ) : null}
-            </div>
+                {historyDetailLoading ? <p className="auth-info">Loading history detail...</p> : null}
+                {historyDetail ? (
+                  <div className="history-detail">
+                    <div className="history-item-top">
+                      <strong>{historyDetail.application.status.toUpperCase()}</strong>
+                      <span className={`sync-badge sync-${historyDetail.application.syncState}`}>{historyDetail.application.syncState}</span>
+                    </div>
+                    <p className="auth-info">{new Date(historyDetail.application.updatedAt).toLocaleString()}</p>
+                    <div className="history-images">
+                      {historyDetail.images.map((image) => (
+                        <div key={image.imageId} className="history-image-link">
+                          <img src={image.thumbSrc ?? `${apiBase}${image.thumbUrl}`} alt={`${image.role} ${image.index}`} />
+                          <span>{image.role} {image.index + 1}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="history-checks">
+                      {(historyDetail.report.checks ?? []).map((check) => (
+                        <div key={check.checkId} className={`history-check check-${check.status}`}>
+                          <strong>{check.label}</strong>
+                          <p>{check.evidenceText || check.failureReason || "No details provided."}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </IonContent>
           </IonModal>
           <IonModal isOpen={authModalOpen} onDidDismiss={() => setAuthModalOpen(false)} backdropDismiss={!authBusy} className="auth-modal">
             <div className="auth-overlay">
