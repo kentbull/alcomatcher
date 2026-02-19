@@ -1053,7 +1053,8 @@ siteRouter.get("/history", requireAuthHtml, (_req, res) => {
 });
 
 // Redirect old admin routes to React admin interface
-siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
+// Note: No auth middleware here - React app handles auth
+siteRouter.get("/admin/queue", (_req, res) => {
   res.redirect(302, "/admin/applications");
 });
 
@@ -1554,7 +1555,7 @@ siteRouter.get("/admin/report/:applicationId", requireManagerHtml, (req, res) =>
 </html>`);
 });
 
-siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
+siteRouter.get("/admin/dashboard", (_req, res) => {
   res.redirect(302, "/admin");
 });
 

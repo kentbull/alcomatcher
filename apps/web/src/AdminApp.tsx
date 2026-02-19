@@ -25,25 +25,15 @@ export const AdminApp: React.FC = () => {
 
   const checkAuth = async () => {
     try {
-      const token = localStorage.getItem("alcomatcher_token");
-      if (!token) {
-        setAuthUser(null);
-        setLoading(false);
-        return;
-      }
-
-      // Verify token with server
+      // Check auth with server (cookie is sent automatically)
       const response = await fetch("/api/auth/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include", // Ensure cookies are sent
       });
 
       if (response.ok) {
         const data = await response.json();
         setAuthUser(data.user);
       } else {
-        localStorage.removeItem("alcomatcher_token");
         setAuthUser(null);
       }
     } catch (error) {
@@ -54,10 +44,17 @@ export const AdminApp: React.FC = () => {
     }
   };
 
-  const handleSignOut = () => {
-    localStorage.removeItem("alcomatcher_token");
+  const handleSignOut = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
     setAuthUser(null);
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   if (loading) {

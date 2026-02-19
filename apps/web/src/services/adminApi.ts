@@ -15,15 +15,20 @@ import type {
 const API_BASE = "/api";
 
 function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem("alcomatcher_token");
-  if (token) {
-    return {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-  }
+  // No need for Authorization header - using HttpOnly cookies
   return {
     "Content-Type": "application/json",
+  };
+}
+
+function getFetchOptions(options: RequestInit = {}): RequestInit {
+  return {
+    ...options,
+    credentials: "include", // Always include cookies
+    headers: {
+      ...getAuthHeaders(),
+      ...options.headers,
+    },
   };
 }
 
@@ -32,9 +37,7 @@ export const adminApi = {
   async getKPIs(windowHours: number = 168): Promise<KPIMetrics> {
     const response = await fetch(
       `${API_BASE}/admin/kpis?windowHours=${windowHours}`,
-      {
-        headers: getAuthHeaders(),
-      }
+      getFetchOptions()
     );
     if (!response.ok) {
       throw new Error(`Failed to fetch KPIs: ${response.statusText}`);
@@ -64,7 +67,7 @@ export const adminApi = {
     }
 
     const url = `${API_BASE}/admin/queue${searchParams.toString() ? "?" + searchParams.toString() : ""}`;
-    const response = await fetch(url, { headers: getAuthHeaders() });
+    const response = await fetch(url, getFetchOptions());
 
     if (!response.ok) {
       throw new Error("Failed to fetch queue");
@@ -91,9 +94,7 @@ export const adminApi = {
   async getApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
     const response = await fetch(
       `${API_BASE}/history/${applicationId}`,
-      {
-        headers: getAuthHeaders(),
-      }
+      getFetchOptions()
     );
     if (!response.ok) {
       throw new Error(`Failed to fetch application detail: ${response.statusText}`);
@@ -105,9 +106,7 @@ export const adminApi = {
   async getApplicationEvents(applicationId: string): Promise<ComplianceEvent[]> {
     const response = await fetch(
       `${API_BASE}/applications/${applicationId}/events`,
-      {
-        headers: getAuthHeaders(),
-      }
+      getFetchOptions()
     );
     if (!response.ok) {
       throw new Error(`Failed to fetch application events: ${response.statusText}`);
@@ -127,11 +126,10 @@ export const adminApi = {
   ): Promise<ApprovalResponse> {
     const response = await fetch(
       `${API_BASE}/admin/applications/${applicationId}/approve`,
-      {
+      getFetchOptions({
         method: "POST",
-        headers: getAuthHeaders(),
         body: JSON.stringify(request),
-      }
+      })
     );
     if (!response.ok) {
       throw new Error(`Failed to approve application: ${response.statusText}`);
@@ -146,11 +144,10 @@ export const adminApi = {
   ): Promise<ApprovalResponse> {
     const response = await fetch(
       `${API_BASE}/admin/applications/${applicationId}/reject`,
-      {
+      getFetchOptions({
         method: "POST",
-        headers: getAuthHeaders(),
         body: JSON.stringify(request),
-      }
+      })
     );
     if (!response.ok) {
       throw new Error(`Failed to reject application: ${response.statusText}`);
@@ -166,11 +163,10 @@ export const adminApi = {
   ): Promise<RescanResponse> {
     const response = await fetch(
       `${API_BASE}/admin/applications/${applicationId}/images/${imageId}/rescan`,
-      {
+      getFetchOptions({
         method: "POST",
-        headers: getAuthHeaders(),
         body: JSON.stringify(request),
-      }
+      })
     );
     if (!response.ok) {
       throw new Error(`Failed to rescan image: ${response.statusText}`);
