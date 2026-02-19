@@ -26,7 +26,7 @@ jobs:
             if [ -f /opt/alcomatcher/.env ]; then
               cp /opt/alcomatcher/.env "$TMP_ENV"
             fi
-            rm -rf /opt/alcomatcher
+            rm -rf /opt/alcomatcher /opt/encodible
             git clone --branch master --single-branch https://github.com/kentbull/alcomatcher.git /opt/alcomatcher
             cd /opt/alcomatcher
             if [ -f "$TMP_ENV" ]; then
@@ -34,6 +34,30 @@ jobs:
             else
               cp .env.example .env
             fi
+            git clone --branch master --single-branch https://github.com/encodible/encodible.com.git /opt/encodible
+            if [ ! -d /opt/encodible ]; then
+              echo "/opt/encodible failed to clone" >&2
+              exit 1
+            fi
+            if [ -f /opt/encodible/.env.example ] && [ ! -f /opt/encodible/.env ]; then
+              cp /opt/encodible/.env.example /opt/encodible/.env
+            fi
+            cp /opt/alcomatcher/infra/nginx/host/alcomatcher.conf /etc/nginx/conf.d/alcomatcher.conf
+            cp /opt/encodible/infra/nginx/host/encodible.conf /etc/nginx/conf.d/encodible.conf
+            LETSENCRYPT_EMAIL="${{ secrets.LETSENCRYPT_EMAIL }}"
+            if [ -n "$LETSENCRYPT_EMAIL" ] && [ -x /opt/encodible/infra/letsencrypt/request-cert.sh ]; then
+              /opt/encodible/infra/letsencrypt/request-cert.sh "$LETSENCRYPT_EMAIL"
+            elif [ -n "$LETSENCRYPT_EMAIL" ]; then
+              certbot renew --deploy-hook "systemctl reload nginx" || true
+            else
+              echo "Skipping certbot because LETSENCRYPT_EMAIL secret is empty" >&2
+            fi
+            nginx -t
+            systemctl reload nginx || true
+            cd /opt/alcomatcher
+            docker compose down --remove-orphans || true
+            docker compose up -d --build --remove-orphans
+            cd /opt/encodible
             docker compose down --remove-orphans || true
             docker compose up -d --build --remove-orphans
             for i in $(seq 1 20); do
@@ -43,6 +67,19 @@ jobs:
               sleep 2
             done
             curl -fsS http://127.0.0.1:3000/health
+            for i in $(seq 1 20); do
+              if curl -fsS http://127.0.0.1:9080/ >/dev/null; then
+                break
+              fi
+              sleep 2
+            done
+            curl -fsS http://127.0.0.1:9080/
+            curl -fsS https://alcomatcher.com/health
+            curl -fsS https://encodible.com/
+            curl -fsS https://encodible.com/feb-2026-ai-event-01
 
       - name: Verify public health
-        run: curl -fsS https://alcomatcher.com/health
+        run: |
+          curl -fsS https://alcomatcher.com/health
+          curl -fsS https://encodible.com/
+          curl -fsS https://encodible.com/feb-2026-ai-event-01

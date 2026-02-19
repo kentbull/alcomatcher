@@ -113,3 +113,10 @@ Scanner-first, offline-first compliance platform foundation for week one.
   - `systemctl enable --now alcomatcher-openclaw-digest.timer`
 - Live drill:
   - `/bin/bash /opt/alcomatcher/infra/openclaw/monitor-alerts.sh --drill`
+
+## Host routing updates
+
+- Copy `/opt/alcomatcher/infra/nginx/host/alcomatcher.conf` to `/etc/nginx/conf.d/alcomatcher.conf` so the host NGINX forwards `alcomatcher.com` to the local container.
+- Copy `/opt/encodible/infra/nginx/host/encodible.conf` (from the Encodible repo) to `/etc/nginx/conf.d/encodible.conf` so `encodible.com` routes to port `9080`.
+- After copying configs run `nginx -t && systemctl reload nginx` to pickup the new sites before starting containers.
+- The deploy workflow uses the `LETSENCRYPT_EMAIL` secret to call `/opt/encodible/infra/letsencrypt/request-cert.sh`, which installs/uses `certbot` to issue and renew TLS certs for `encodible.com` before reloading the proxy.
