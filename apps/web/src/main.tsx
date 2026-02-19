@@ -50,6 +50,7 @@ interface FinalizeResult {
     abvText?: string;
     netContents?: string;
     hasGovWarning: boolean;
+    govWarningExtracted?: string;
     fieldSources?: Record<string, { role: string; index: number; confidence: number }>;
   };
   checks: ScannerCheck[];
