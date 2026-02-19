@@ -78,7 +78,7 @@ export const AdminApp: React.FC = () => {
   return (
     <BrowserRouter>
       <ErrorBoundary>
-        <div style={{ minHeight: "100vh" }}>
+        <div>
           <AdminNavbar
             isAuthenticated={isAuthenticated}
             userEmail={authUser?.email}

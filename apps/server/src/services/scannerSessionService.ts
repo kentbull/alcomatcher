@@ -498,6 +498,7 @@ function buildServerStageTimings(session: ScanSession, result: ScannerQuickCheck
     backOcrMs: back?.result?.processingMs,
     additionalUploadTotalMs: additional.reduce((sum, img) => sum + (img.result?.processingMs ?? 0), 0),
     finalizeMs,
-    decisionTotalMs: result.processingMs
+    decisionTotalMs: result.processingMs,
+    llmExtractionMs: result.stageTimings?.llmExtractionMs
   };
 }

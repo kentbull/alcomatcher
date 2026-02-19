@@ -37,6 +37,12 @@ const envSchema = z.object({
     .optional()
     .transform((value) => value === "true"),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-haiku-4-5-20251001"),
+  SEMANTIC_EXTRACTION_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
   AUTH_SEED_USERS: z
     .string()
     .default(

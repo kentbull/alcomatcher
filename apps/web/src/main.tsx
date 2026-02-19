@@ -1439,6 +1439,8 @@ function App() {
           sessionId: resolvedSessionId,
           summary: payload.summary,
           confidence: payload.confidence,
+          brandName: payload.extracted?.brandName ?? null,
+          classType: payload.extracted?.classType ?? null,
           telemetryQuality: payload.telemetryQuality ?? "partial",
           committedAt: new Date().toISOString()
         });

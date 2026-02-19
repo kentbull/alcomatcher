@@ -32,6 +32,7 @@ export interface ScanFieldSource {
   role: ScanImageRole;
   index: number;
   confidence: number;
+  extractionMethod?: "regex" | "llm";
 }
 
 export interface CompositeExtractedFields extends ExtractedFields {
@@ -42,6 +43,7 @@ export interface CompositeExtractedFields extends ExtractedFields {
     netContents?: ScanFieldSource;
     hasGovWarning?: ScanFieldSource;
   };
+  llmExtractionUsed?: boolean;
 }
 
 export interface PerImageScanResult {
@@ -81,6 +83,7 @@ export interface ScannerStageTimings {
   additionalUploadTotalMs?: number;
   finalizeMs?: number;
   decisionTotalMs?: number;
+  llmExtractionMs?: number;
 }
 
 export interface ExpectedLabelFields {

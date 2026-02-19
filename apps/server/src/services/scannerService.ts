@@ -1,5 +1,7 @@
 import { GoogleCloudVisionAdapter } from "./ocr/googleCloudVisionAdapter.js";
 import { LocalTesseractAdapter } from "./ocr/localTesseractAdapter.js";
+import { semanticExtractionService } from "./semanticExtractionService.js";
+import type { SemanticExtractionResult } from "./semanticExtractionService.js";
 import type { CompositeExtractedFields, ExpectedLabelFields, OcrAdapter, PerImageScanResult, ScanImageRole, ScannerCheck, ScannerQuickCheckResult } from "../types/scanner.js";
 
 const GOV_WARNING_TOKEN = "GOVERNMENT WARNING";
@@ -60,16 +62,18 @@ export class ScannerService {
   async quickCheckMultiImage(images: ScanInputImage[], expected?: ExpectedLabelFields): Promise<ScannerQuickCheckResult> {
     const perImage = await Promise.all(images.map((item) => this.analyzeImage(item.role, item.index, item.image)));
     const compositeExtracted = this.composeExtracted(perImage);
-    const compositeChecks = this.buildCompositeChecks(compositeExtracted, expected);
+    const semanticResult = await semanticExtractionService.extract(compositeExtracted.rawText);
+    const finalExtracted = this.mergeWithSemanticResult(compositeExtracted, semanticResult);
+    const compositeChecks = this.buildCompositeChecks(finalExtracted, expected);
     const failCount = compositeChecks.filter((check) => check.status === "fail").length;
     const notEvaluableCount = compositeChecks.filter((check) => check.status === "not_evaluable").length;
     const summary: ScannerQuickCheckResult["summary"] = failCount > 0 ? "fail" : notEvaluableCount > 0 ? "needs_review" : "pass";
 
     return {
       summary,
-      extracted: compositeExtracted,
+      extracted: finalExtracted,
       composite: {
-        extracted: compositeExtracted,
+        extracted: finalExtracted,
         checks: compositeChecks
       },
       images: perImage,
@@ -77,7 +81,8 @@ export class ScannerService {
       confidence: average(perImage.map((entry) => entry.confidence)),
       provider: perImage.find((entry) => entry.usedFallback)?.provider ?? perImage[0]?.provider ?? "local_tesseract",
       usedFallback: perImage.some((entry) => entry.usedFallback),
-      processingMs: perImage.reduce((sum, entry) => sum + entry.processingMs, 0)
+      processingMs: perImage.reduce((sum, entry) => sum + entry.processingMs, 0) + semanticResult.llmExtractionMs,
+      stageTimings: semanticResult.usedLlm ? { llmExtractionMs: semanticResult.llmExtractionMs } : undefined
     };
   }
 
@@ -162,6 +167,39 @@ export class ScannerService {
         netContents: netCandidate && typeof netCandidate.value === "string" ? sourceFromCandidate(netCandidate) : undefined,
         hasGovWarning: govWarningSource
       }
+    };
+  }
+
+  private mergeWithSemanticResult(
+    composite: CompositeExtractedFields,
+    semantic: SemanticExtractionResult
+  ): CompositeExtractedFields {
+    if (!semantic.usedLlm || Object.keys(semantic.fields).length === 0) return composite;
+    const f = semantic.fields;
+    const LLM_CONF = 0.92;
+    const fieldSources = { ...composite.fieldSources };
+
+    const markLlm = (field: keyof typeof fieldSources, fallbackRole: "front" | "back") => {
+      fieldSources[field] = {
+        ...(composite.fieldSources[field] ?? { role: fallbackRole, index: 0, confidence: LLM_CONF }),
+        confidence: LLM_CONF,
+        extractionMethod: "llm" as const,
+      };
+    };
+
+    const brandName   = f.brandName   != null ? (markLlm("brandName",   "front"), f.brandName)   : composite.brandName;
+    const classType   = f.classType   != null ? (markLlm("classType",   "front"), f.classType)   : composite.classType;
+    const abvText     = f.abvText     != null ? (markLlm("abvText",     "back"),  f.abvText)     : composite.abvText;
+    const netContents = f.netContents != null ? (markLlm("netContents", "back"),  f.netContents) : composite.netContents;
+    const hasGovWarning = f.hasGovWarning !== undefined
+      ? (markLlm("hasGovWarning", "back"), composite.hasGovWarning || f.hasGovWarning)
+      : composite.hasGovWarning;
+    const govWarningExtracted = f.govWarningExtracted != null ? f.govWarningExtracted : composite.govWarningExtracted;
+
+    return {
+      ...composite,
+      brandName, classType, abvText, netContents, hasGovWarning,
+      govWarningExtracted, fieldSources, llmExtractionUsed: true,
     };
   }
 
