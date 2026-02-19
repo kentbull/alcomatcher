@@ -43,7 +43,15 @@ export const adminApi = {
       throw new Error(`Failed to fetch KPIs: ${response.statusText}`);
     }
     const data = await response.json();
-    return data.kpis;
+    const kpis = data.kpis;
+    return {
+      totalProcessed: kpis.totals?.quickChecks ?? 0,
+      approvedThisWeek: (kpis.statusCounts?.approved ?? 0) + (kpis.statusCounts?.matched ?? 0),
+      rejectedThisWeek: kpis.statusCounts?.rejected ?? 0,
+      needsReview: kpis.statusCounts?.needs_review ?? 0,
+      avgConfidence: kpis.scanPerformance?.avgConfidence ?? 0,
+      avgOcrLatency: (kpis.scanPerformance?.p50Ms ?? 0) / 1000,
+    };
   },
 
   // Application Queue (Paginated)

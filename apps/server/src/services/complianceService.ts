@@ -301,10 +301,10 @@ export class ComplianceService {
     // Fetch all applications
     const applications = await this.listApplications();
 
-    // Filter by status if provided
+    // Filter by status if provided; exclude phantom "captured" records by default
     const filtered = status
       ? applications.filter((app) => app.status === status)
-      : applications;
+      : applications.filter((app) => app.status !== "captured");
 
     const totalCount = filtered.length;
 

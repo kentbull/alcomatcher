@@ -1154,11 +1154,6 @@ function App() {
   }, [previewAdapter]);
 
   useEffect(() => {
-    if (!authRestoreComplete || sessionId) return;
-    void createSessionRef.current();
-  }, [authRestoreComplete, sessionId]);
-
-  useEffect(() => {
     let disposed = false;
     const startPreview = async () => {
       if (!Capacitor.isNativePlatform()) {

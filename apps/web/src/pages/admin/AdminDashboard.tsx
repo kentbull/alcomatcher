@@ -65,13 +65,13 @@ export const AdminDashboard: React.FC = () => {
           icon="📊"
         />
         <MetricsCard
-          label="Approved This Week"
+          label="Total Approved"
           value={metrics?.approvedThisWeek ?? 0}
           icon="✓"
           variant="success"
         />
         <MetricsCard
-          label="Rejected This Week"
+          label="Total Rejected"
           value={metrics?.rejectedThisWeek ?? 0}
           icon="✗"
           variant="danger"
