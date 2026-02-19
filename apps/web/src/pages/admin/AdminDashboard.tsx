@@ -27,7 +27,7 @@ export const AdminDashboard: React.FC = () => {
       ]);
 
       setMetrics(kpis);
-      setRecentApplications(queue.slice(0, 5));
+      setRecentApplications(queue.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard data");
     } finally {
