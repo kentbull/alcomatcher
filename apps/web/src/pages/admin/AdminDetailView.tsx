@@ -121,7 +121,9 @@ export const AdminDetailView: React.FC = () => {
         >
           ← Back to List
         </button>
-        <h1 className="admin-heading-1">Application {application.applicationId.slice(0, 8)}...</h1>
+        <h1 className="admin-heading-1">
+          Application {application.applicationId ? application.applicationId.slice(0, 8) + "..." : "Unknown"}
+        </h1>
         <button
           className="btn-admin btn-admin--secondary"
           onClick={() => id && loadApplicationDetail(id)}

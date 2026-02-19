@@ -99,7 +99,27 @@ export const adminApi = {
     if (!response.ok) {
       throw new Error(`Failed to fetch application detail: ${response.statusText}`);
     }
-    return response.json();
+
+    const data = await response.json();
+
+    // Transform nested API response to flat ApplicationDetail format
+    return {
+      applicationId: data.application?.applicationId || applicationId,
+      status: data.application?.status || "created",
+      syncState: data.application?.syncState || "pending",
+      confidence: data.report?.confidence || 0,
+      brandName: data.report?.brandName,
+      classType: data.report?.classType,
+      abvText: data.report?.abvText,
+      netContents: data.report?.netContents,
+      regulatoryProfile: data.report?.regulatoryProfile,
+      createdByUserId: data.application?.createdByUserId,
+      lastDecidedByUserId: data.report?.lastDecidedByUserId,
+      createdAt: data.application?.createdAt || data.application?.updatedAt || new Date().toISOString(),
+      updatedAt: data.application?.updatedAt || new Date().toISOString(),
+      images: data.images || [],
+      checks: data.report?.checks || [],
+    };
   },
 
   // Event History
