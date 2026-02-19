@@ -1052,7 +1052,15 @@ siteRouter.get("/history", requireAuthHtml, (_req, res) => {
 </html>`);
 });
 
+// Redirect old admin routes to React admin interface
 siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
+  res.redirect(302, "/admin/applications");
+});
+
+// Old server-rendered queue - DEPRECATED in favor of React admin
+// Commented out but preserved for reference
+/*
+siteRouter.get("/admin/queue-old", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -1244,6 +1252,7 @@ siteRouter.get("/admin/queue", requireManagerHtml, (_req, res) => {
   </body>
 </html>`);
 });
+*/
 
 siteRouter.get("/admin/report/:applicationId", requireManagerHtml, (req, res) => {
   const applicationId = req.params.applicationId;
@@ -1546,6 +1555,13 @@ siteRouter.get("/admin/report/:applicationId", requireManagerHtml, (req, res) =>
 });
 
 siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
+  res.redirect(302, "/admin");
+});
+
+// Old server-rendered dashboard - DEPRECATED in favor of React admin
+// Commented out but preserved for reference
+/*
+siteRouter.get("/admin/dashboard-old", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
   <head>
@@ -1728,6 +1744,7 @@ siteRouter.get("/admin/dashboard", requireManagerHtml, (_req, res) => {
   </body>
 </html>`);
 });
+*/
 
 siteRouter.get("/admin/batches", requireManagerHtml, (_req, res) => {
   res.type("html").send(`<!doctype html>

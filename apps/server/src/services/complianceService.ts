@@ -293,10 +293,29 @@ export class ComplianceService {
     return doc ?? null;
   }
 
-  async listAdminQueue(status?: ComplianceApplicationDoc["status"]) {
+  async listAdminQueue(
+    status?: ComplianceApplicationDoc["status"],
+    limit?: number,
+    offset?: number
+  ): Promise<{ items: any[]; totalCount: number }> {
+    // Fetch all applications
     const applications = await this.listApplications();
+
+    // Filter by status if provided
+    const filtered = status
+      ? applications.filter((app) => app.status === status)
+      : applications;
+
+    const totalCount = filtered.length;
+
+    // Apply pagination if limit provided
+    const paginated = limit !== undefined
+      ? filtered.slice(offset || 0, (offset || 0) + limit)
+      : filtered;
+
+    // Enrich with projections
     const queueItems = await Promise.all(
-      applications.map(async (app) => {
+      paginated.map(async (app) => {
         const projection = await this.getProjection(app.applicationId);
         return {
           applicationId: app.applicationId,
@@ -308,7 +327,7 @@ export class ComplianceService {
       })
     );
 
-    return status ? queueItems.filter((item) => item.status === status) : queueItems;
+    return { items: queueItems, totalCount };
   }
 
   async listHistoryForActor(

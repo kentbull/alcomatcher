@@ -8,6 +8,8 @@ import type {
   RescanRequest,
   ApprovalResponse,
   RescanResponse,
+  ApplicationStatus,
+  SyncState,
 } from "../types/admin";
 
 const API_BASE = "/api";
@@ -42,32 +44,47 @@ export const adminApi = {
   },
 
   // Application Queue (Paginated)
-  async getQueue(params: {
-    page?: number;
-    limit?: number;
-    status?: string;
-    syncState?: string;
+  async getQueue(params?: {
+    status?: ApplicationStatus;
+    syncState?: SyncState;
     search?: string;
-  } = {}): Promise<ApplicationQueueItem[]> {
+    limit?: number;
+    offset?: number;
+  }): Promise<{ items: ApplicationQueueItem[]; totalCount: number }> {
     const searchParams = new URLSearchParams();
-    if (params.page) searchParams.set("page", params.page.toString());
-    if (params.limit) searchParams.set("limit", params.limit.toString());
-    if (params.status) searchParams.set("status", params.status);
-    if (params.syncState) searchParams.set("syncState", params.syncState);
-    if (params.search) searchParams.set("search", params.search);
 
-    const response = await fetch(
-      `${API_BASE}/admin/queue?${searchParams.toString()}`,
-      {
-        headers: getAuthHeaders(),
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to fetch queue: ${response.statusText}`);
+    if (params?.status) {
+      searchParams.set("status", params.status);
     }
+    if (params?.limit !== undefined) {
+      searchParams.set("limit", params.limit.toString());
+    }
+    if (params?.offset !== undefined) {
+      searchParams.set("offset", params.offset.toString());
+    }
+
+    const url = `${API_BASE}/admin/queue${searchParams.toString() ? "?" + searchParams.toString() : ""}`;
+    const response = await fetch(url, { headers: getAuthHeaders() });
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch queue");
+    }
+
     const data = await response.json();
-    // For now, return the queue array. Pagination will be added in Phase 2
-    return data.queue || [];
+
+    // Check if response has pagination metadata
+    if (data.pagination) {
+      return {
+        items: data.queue || [],
+        totalCount: data.pagination.totalCount
+      };
+    }
+
+    // Fallback for non-paginated response (backward compatible)
+    return {
+      items: data.queue || [],
+      totalCount: data.queue?.length || 0
+    };
   },
 
   // Application Detail

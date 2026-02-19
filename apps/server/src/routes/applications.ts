@@ -279,14 +279,47 @@ applicationRouter.get("/api/history/:applicationId/images/:imageId", async (req,
 });
 
 applicationRouter.get("/api/admin/queue", async (req, res) => {
+  // Parse status filter
   const statusQuery = typeof req.query.status === "string" ? req.query.status : undefined;
   const parsedStatus = statusQuery ? queueStatusSchema.safeParse(statusQuery) : null;
   if (statusQuery && (!parsedStatus || !parsedStatus.success)) {
     return res.status(400).json({ error: "invalid_status_filter" });
   }
 
-  const queue = await complianceService.listAdminQueue(parsedStatus?.success ? parsedStatus.data : undefined);
-  return res.json({ queue });
+  // Parse pagination parameters
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+  const offsetRaw = typeof req.query.offset === "string" ? Number(req.query.offset) : undefined;
+
+  const limit = limitRaw !== undefined && Number.isFinite(limitRaw) && limitRaw > 0
+    ? Math.min(limitRaw, 200)  // Cap at 200 max
+    : undefined;  // undefined = no pagination (backward compatible)
+
+  const offset = offsetRaw !== undefined && Number.isFinite(offsetRaw) && offsetRaw >= 0
+    ? offsetRaw
+    : 0;
+
+  // Fetch queue with pagination
+  const result = await complianceService.listAdminQueue(
+    parsedStatus?.success ? parsedStatus.data : undefined,
+    limit,
+    offset
+  );
+
+  // Return with pagination metadata if paginating
+  if (limit !== undefined) {
+    return res.json({
+      queue: result.items,
+      pagination: {
+        totalCount: result.totalCount,
+        limit,
+        offset,
+        hasMore: offset + result.items.length < result.totalCount
+      }
+    });
+  }
+
+  // Backward compatible response (no pagination)
+  return res.json({ queue: result.items });
 });
 
 applicationRouter.get("/api/admin/kpis", async (req, res) => {

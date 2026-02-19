@@ -6,10 +6,11 @@ import { PaginationControls } from "../../components/admin/PaginationControls";
 import type { ApplicationQueueItem, ApplicationStatus, SyncState } from "../../types/admin";
 import "./AdminListView.css";
 
-const ITEMS_PER_PAGE = 20;
+const ITEMS_PER_PAGE = 50;  // Changed from 20 to 50
 
 export const AdminListView: React.FC = () => {
   const [applications, setApplications] = useState<ApplicationQueueItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);  // NEW - server total
   const [filteredApplications, setFilteredApplications] = useState<ApplicationQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,18 +27,28 @@ export const AdminListView: React.FC = () => {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Load applications
+  // Load applications - refetch when page or status filter changes
   useEffect(() => {
     loadApplications();
-  }, []);
+  }, [currentPage, statusFilter]);
 
   const loadApplications = async () => {
     try {
       setLoading(true);
       setError(null);
-      const queue = await adminApi.getQueue();
-      setApplications(queue);
-      setFilteredApplications(queue);
+
+      // Calculate offset for current page
+      const offset = (currentPage - 1) * ITEMS_PER_PAGE;
+
+      // Fetch from API with server pagination and status filter
+      const result = await adminApi.getQueue({
+        status: statusFilter === "all" ? undefined : statusFilter as ApplicationStatus,
+        limit: ITEMS_PER_PAGE,
+        offset
+      });
+
+      setApplications(result.items);
+      setTotalCount(result.totalCount);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load applications");
     } finally {
@@ -45,21 +56,17 @@ export const AdminListView: React.FC = () => {
     }
   };
 
-  // Apply filters and sorting whenever dependencies change
+  // Apply client-side filters (syncState and search) and sorting
+  // Status filter is already applied server-side
   useEffect(() => {
     let result = [...applications];
 
-    // Apply status filter
-    if (statusFilter !== "all") {
-      result = result.filter((app) => app.status === statusFilter);
-    }
-
-    // Apply sync state filter
+    // Apply sync state filter (client-side)
     if (syncStateFilter !== "all") {
       result = result.filter((app) => app.syncState === syncStateFilter);
     }
 
-    // Apply search filter
+    // Apply search filter (client-side)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       result = result.filter(
@@ -98,8 +105,7 @@ export const AdminListView: React.FC = () => {
     });
 
     setFilteredApplications(result);
-    setCurrentPage(1); // Reset to first page when filters change
-  }, [applications, statusFilter, syncStateFilter, searchQuery, sortBy, sortOrder]);
+  }, [applications, syncStateFilter, searchQuery, sortBy, sortOrder]);
 
   const handleSort = useCallback((field: string) => {
     setSortBy((prev) => {
@@ -115,11 +121,19 @@ export const AdminListView: React.FC = () => {
     });
   }, []);
 
-  // Paginate results
-  const totalPages = Math.ceil(filteredApplications.length / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const endIndex = startIndex + ITEMS_PER_PAGE;
-  const paginatedApplications = filteredApplications.slice(startIndex, endIndex);
+  // Handler to reset to page 1 when status filter changes
+  const handleStatusFilterChange = useCallback((status: ApplicationStatus | "all") => {
+    setStatusFilter(status);
+    setCurrentPage(1);
+  }, []);
+
+  // No need for client-side pagination - we're using server pagination
+  // Display the filtered/sorted applications directly
+  const paginatedApplications = filteredApplications;
+
+  // Calculate total pages from server's totalCount
+  // Note: This is the total BEFORE client-side filters (syncState, search)
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
   if (loading) {
     return (
@@ -155,7 +169,7 @@ export const AdminListView: React.FC = () => {
         statusFilter={statusFilter}
         syncStateFilter={syncStateFilter}
         searchQuery={searchQuery}
-        onStatusFilterChange={setStatusFilter}
+        onStatusFilterChange={handleStatusFilterChange}
         onSyncStateFilterChange={setSyncStateFilter}
         onSearchChange={setSearchQuery}
       />

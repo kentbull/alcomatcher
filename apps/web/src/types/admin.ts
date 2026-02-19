@@ -44,6 +44,13 @@ export interface QueueResponse {
   pagination: PaginationInfo;
 }
 
+export interface PaginationMetadata {
+  totalCount: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+}
+
 export interface ComplianceCheck {
   id: string;
   label: string;
