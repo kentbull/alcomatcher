@@ -16,6 +16,10 @@ import "./styles.css";
 import type { ProcessingStage, ScannerStageId } from "./types/processingStage";
 import { SCANNER_STAGES } from "./types/processingStage";
 import { LoadingStages } from "./components/LoadingStages";
+import { SyncStatus } from "./components/SyncStatus";
+import { SyncQueueModal } from "./components/SyncQueueModal";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { useSyncQueue } from "./hooks/useSyncQueue";
 
 setupIonicReact();
 
@@ -296,6 +300,11 @@ function App() {
   const [deleteConfirmationText, setDeleteConfirmationText] = useState("");
   const [processingStages, setProcessingStages] = useState<ProcessingStage[]>([]);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [syncQueueOpen, setSyncQueueOpen] = useState(false);
+
+  // Offline/sync monitoring
+  const isOnline = useOnlineStatus();
+  const { queueState, refreshQueue, updateLastSyncTime, setSyncing } = useSyncQueue();
 
   const frontInputRef = useRef<HTMLInputElement | null>(null);
   const backInputRef = useRef<HTMLInputElement | null>(null);
@@ -396,14 +405,19 @@ function App() {
 
   const flushPendingCrdtCommits = useCallback(async (token: string, actorUserId: string) => {
     if (!token || !actorUserId) return;
-    const [pendingState, sequenceState] = await Promise.all([
-      Preferences.get({ key: PENDING_CRDT_COMMITS_KEY }),
-      Preferences.get({ key: CRDT_SEQUENCE_MAP_KEY })
-    ]);
-    const pending = parseJsonValue<PendingCrdtCommit[]>(pendingState.value, []);
-    if (pending.length === 0) return;
-    const sequenceMap = parseJsonValue<Record<string, number>>(sequenceState.value, {});
-    const keep: PendingCrdtCommit[] = [];
+    setSyncing(true);
+    try {
+      const [pendingState, sequenceState] = await Promise.all([
+        Preferences.get({ key: PENDING_CRDT_COMMITS_KEY }),
+        Preferences.get({ key: CRDT_SEQUENCE_MAP_KEY })
+      ]);
+      const pending = parseJsonValue<PendingCrdtCommit[]>(pendingState.value, []);
+      if (pending.length === 0) {
+        await updateLastSyncTime();
+        return;
+      }
+      const sequenceMap = parseJsonValue<Record<string, number>>(sequenceState.value, {});
+      const keep: PendingCrdtCommit[] = [];
 
     for (const entry of pending) {
       const sequenceKey = `${entry.applicationId}:${actorUserId}`;
@@ -436,13 +450,18 @@ function App() {
       }
     }
 
-    await Preferences.set({ key: CRDT_SEQUENCE_MAP_KEY, value: JSON.stringify(sequenceMap) });
-    if (keep.length > 0) {
-      await Preferences.set({ key: PENDING_CRDT_COMMITS_KEY, value: JSON.stringify(keep.slice(-200)) });
-    } else {
-      await Preferences.remove({ key: PENDING_CRDT_COMMITS_KEY });
+      await Preferences.set({ key: CRDT_SEQUENCE_MAP_KEY, value: JSON.stringify(sequenceMap) });
+      if (keep.length > 0) {
+        await Preferences.set({ key: PENDING_CRDT_COMMITS_KEY, value: JSON.stringify(keep.slice(-200)) });
+      } else {
+        await Preferences.remove({ key: PENDING_CRDT_COMMITS_KEY });
+      }
+      await updateLastSyncTime();
+      await refreshQueue();
+    } finally {
+      setSyncing(false);
     }
-  }, [apiBase]);
+  }, [apiBase, refreshQueue, setSyncing, updateLastSyncTime]);
 
   const loadHistory = useCallback(async () => {
     if (!authToken) {
@@ -577,6 +596,13 @@ function App() {
   useEffect(() => {
     if (!authUser) setAccountMenuOpen(false);
   }, [authUser]);
+
+  // Auto-sync when coming back online
+  useEffect(() => {
+    if (isOnline && authToken && authUser && queueState.pendingCount > 0) {
+      void flushPendingCrdtCommits(authToken, authUser.userId);
+    }
+  }, [isOnline, authToken, authUser, queueState.pendingCount, flushPendingCrdtCommits]);
 
   useEffect(() => {
     const listenerPromise = CapApp.addListener("appUrlOpen", (event) => {
@@ -1496,6 +1522,14 @@ function App() {
                 {previewError ? <p className="preview-warning">Preview fallback: {previewError}</p> : null}
                 {authInfo ? <p className="preview-warning">{authInfo}</p> : null}
               </IonText>
+
+              {/* Sync Status Indicator */}
+              <SyncStatus
+                isOnline={isOnline}
+                queueState={queueState}
+                onTap={() => setSyncQueueOpen(true)}
+              />
+
               {isNativeIos ? null : (
                 <>
                   <div className="step-row" role="status" aria-live="polite">
@@ -1924,6 +1958,19 @@ function App() {
           </div>
         </IonContent>
       </IonModal>
+
+      {/* Sync Queue Modal */}
+      <SyncQueueModal
+        isOpen={syncQueueOpen}
+        onClose={() => setSyncQueueOpen(false)}
+        queueState={queueState}
+        onRetrySync={() => {
+          if (authToken && authUser) {
+            void flushPendingCrdtCommits(authToken, authUser.userId);
+          }
+        }}
+        isOnline={isOnline}
+      />
 
       {/* Simple loading indicator for session init */}
       <IonLoading

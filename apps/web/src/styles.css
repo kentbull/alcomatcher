@@ -772,6 +772,73 @@ ion-app {
   }
 }
 
+/* Sync Status Components */
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(28, 16, 11, 0.4);
+  border-radius: 8px;
+  border: 1px solid rgba(237, 196, 131, 0.2);
+}
+
+.sync-status-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-status-indicator ion-icon {
+  font-size: 1.5rem;
+}
+
+.sync-status-spinning {
+  animation: sync-spin 2s linear infinite;
+}
+
+@keyframes sync-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sync-status-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 0.65rem;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+}
+
+.sync-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sync-status-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.sync-status-time {
+  font-size: 0.7rem;
+}
+
+.sync-queue-status {
+  padding: 1rem;
+  background: rgba(28, 16, 11, 0.3);
+  border-radius: 8px;
+  border: 1px solid rgba(237, 196, 131, 0.2);
+}
+
 /* Loading States Components */
 .processing-stages-modal {
   --background: rgba(28, 16, 11, 0.95);
