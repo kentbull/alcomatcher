@@ -55,12 +55,6 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
                 Batch Upload
               </button>
               <button
-                className={`admin-nav-link ${isActive("/admin") ? "active" : ""}`}
-                onClick={() => navigate("/admin")}
-              >
-                KPI
-              </button>
-              <button
                 className={`admin-nav-link ${isActive("/admin/users") ? "active" : ""}`}
                 onClick={() => navigate("/admin/users")}
               >
