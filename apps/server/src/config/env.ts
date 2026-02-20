@@ -13,6 +13,10 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((value) => value !== "false"),
+  CORS_ALLOW_ALL: z
+    .string()
+    .optional()
+    .transform((value) => value === "true"),
   JWT_SECRET: z.string().default("dev-only-change-me"),
   JWT_EXPIRES_HOURS: z.coerce.number().default(8),
   OTP_TTL_MINUTES: z.coerce.number().default(10),

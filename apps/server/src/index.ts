@@ -46,6 +46,10 @@ function isLoopbackOrigin(origin: string): boolean {
 app.use(
   cors({
     origin: (origin, callback) => {
+      if (env.CORS_ALLOW_ALL) {
+        callback(null, true);
+        return;
+      }
       if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
         return;
