@@ -24,11 +24,24 @@ const app = express();
 
 const allowedOrigins = new Set([
   env.CORS_ORIGIN,
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
   "http://localhost:8100",
+  "http://127.0.0.1:8100",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
   "capacitor://localhost",
   "ionic://localhost"
 ]);
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
 
 app.use(
   cors({
@@ -37,6 +50,11 @@ app.use(
         callback(null, true);
         return;
       }
+      if (env.CORS_ALLOW_LOOPBACK && isLoopbackOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      logger.warn({ origin, nodeEnv: env.NODE_ENV, corsOrigin: env.CORS_ORIGIN }, "CORS origin denied");
       callback(new Error("cors_not_allowed"));
     }
   })

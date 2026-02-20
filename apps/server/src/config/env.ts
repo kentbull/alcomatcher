@@ -9,6 +9,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   DATABASE_URL: z.string().default("postgres://alcomatcher:alcomatcher@db:5432/alcomatcher"),
   CORS_ORIGIN: z.string().default("http://localhost:8100"),
+  CORS_ALLOW_LOOPBACK: z
+    .string()
+    .optional()
+    .transform((value) => value !== "false"),
   JWT_SECRET: z.string().default("dev-only-change-me"),
   JWT_EXPIRES_HOURS: z.coerce.number().default(8),
   OTP_TTL_MINUTES: z.coerce.number().default(10),
