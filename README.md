@@ -25,8 +25,8 @@ Scanner-first, offline-first compliance platform for alcohol label review.
    - `curl http://localhost:3000/health`
 
 First-run note:
-- `docker-compose.yml` mounts `/opt/keys/google-key.json` into the app/worker containers.
-- If you are not using Google Vision yet, either create a placeholder file at that path or remove/comment the mount lines locally.
+- Local Docker no longer requires sharing `/opt/keys/google-key.json`.
+- Cloud OCR stays disabled unless you explicitly set `GOOGLE_APPLICATION_CREDENTIALS` and provide a key in the mounted keys directory.
 
 This brings up:
 - `app` (API/static web host) on `http://localhost:3000`
@@ -56,6 +56,7 @@ Commonly adjusted values:
 - `DATABASE_URL`: Postgres connection string
 - `CORS_ORIGIN`: web origin (default `http://localhost:8100`)
 - `JWT_SECRET`: replace in non-dev environments
+- `VITE_API_BASE_URL` (`apps/web`): set only when web and API are on different origins
 - `GOOGLE_APPLICATION_CREDENTIALS`: optional Google Vision key path
 - `ANTHROPIC_API_KEY`: optional Claude key for semantic extraction
 - `SEMANTIC_EXTRACTION_ENABLED`: enable semantic extraction path when needed

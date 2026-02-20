@@ -351,7 +351,12 @@ function App() {
     ocrEndedAt: {}
   });
 
-  const apiBase = useMemo(() => import.meta.env.VITE_API_BASE_URL ?? "https://alcomatcher.com", []);
+  const apiBase = useMemo(() => {
+    const configured = import.meta.env.VITE_API_BASE_URL;
+    if (configured && configured.trim().length > 0) return configured;
+    if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+    return "http://localhost:3000";
+  }, []);
   const isNativeIos = useMemo(() => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios", []);
   const frontReady = images.some((image) => image.role === "front" && image.uploadState === "ready");
   const backReady = images.some((image) => image.role === "back" && image.uploadState === "ready");
