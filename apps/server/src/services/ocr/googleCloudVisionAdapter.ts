@@ -1,4 +1,5 @@
 import { GoogleAuth } from "google-auth-library";
+import { access } from "node:fs/promises";
 import type { OcrAdapter, OcrResult } from "../../types/scanner.js";
 
 /**
@@ -19,7 +20,18 @@ export class GoogleCloudVisionAdapter implements OcrAdapter {
   }
 
   async recognize(image: Buffer): Promise<OcrResult> {
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credentialsPath) {
+      return {
+        provider: "google_cloud_vision",
+        text: "",
+        confidence: 0,
+        usedFallback: true
+      };
+    }
+
+    const hasUsableCredentials = await access(credentialsPath).then(() => true).catch(() => false);
+    if (!hasUsableCredentials) {
       return {
         provider: "google_cloud_vision",
         text: "",
