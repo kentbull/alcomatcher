@@ -2,8 +2,17 @@ import type { RegulatoryProfile } from "./compliance.js";
 
 export interface BatchItemInput {
   clientLabelId: string;
-  imageFilename: string;
+  imageFilename?: string;
   regulatoryProfile: RegulatoryProfile;
+  expectedBrandName?: string;
+  expectedClassType?: string;
+  expectedAbvText?: string;
+  expectedNetContents?: string;
+  expectedGovernmentWarning?: string;
+  requireGovWarning?: boolean;
+  frontImagePath?: string;
+  backImagePath?: string;
+  additionalImagePaths?: string[];
 }
 
 export interface BatchItemRecord extends BatchItemInput {
@@ -12,6 +21,8 @@ export interface BatchItemRecord extends BatchItemInput {
   errorReason?: string;
   lastErrorCode?: string;
   retryCount: number;
+  applicationId?: string;
+  updatedAt?: string;
 }
 
 export interface BatchJobRecord {
@@ -21,6 +32,14 @@ export interface BatchJobRecord {
   acceptedItems: number;
   rejectedItems: number;
   status: "batch_received" | "batch_processing" | "batch_partially_failed" | "batch_completed";
+  ingestStatus?: "received" | "parsing" | "queued" | "processing" | "completed" | "partially_failed" | "failed";
+  discoveredItems?: number;
+  queuedItems?: number;
+  processingItems?: number;
+  completedItems?: number;
+  failedItems?: number;
+  archiveBytes?: number;
+  errorSummary?: string | null;
   createdAt: string;
   updatedAt: string;
 }

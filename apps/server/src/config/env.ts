@@ -46,7 +46,11 @@ const envSchema = z.object({
     .string()
     .default(
       "officer@alcomatcher.com:compliance_officer;manager@alcomatcher.com:compliance_manager;reviewer@apple.com:compliance_officer"
-    )
+    ),
+  BATCH_UPLOAD_STAGING_ROOT: z.string().default("/tmp/alcomatcher-batches"),
+  BATCH_MAX_ITEMS_PER_UPLOAD: z.coerce.number().default(500),
+  BATCH_UPLOAD_MAX_ARCHIVE_BYTES: z.coerce.number().default(10 * 1024 * 1024 * 1024),
+  BATCH_ITEM_PROCESS_CONCURRENCY: z.coerce.number().default(8)
 });
 
 export const env = envSchema.parse(process.env);

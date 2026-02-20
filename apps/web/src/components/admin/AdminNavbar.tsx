@@ -20,7 +20,7 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const isManager = userRole === "compliance_manager";
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
 
   return (
     <nav className="admin-navbar">
@@ -42,6 +42,12 @@ export const AdminNavbar: React.FC<AdminNavbarProps> = ({
                 onClick={() => navigate("/admin/applications")}
               >
                 Applications
+              </button>
+              <button
+                className={`admin-nav-link ${isActive("/admin/batches") ? "active" : ""}`}
+                onClick={() => navigate("/admin/batches")}
+              >
+                Batch Upload
               </button>
             </div>
           )}

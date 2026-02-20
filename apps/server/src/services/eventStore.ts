@@ -8,6 +8,7 @@ import type { BatchItemAttemptRecord, BatchItemRecord, BatchJobRecord } from "..
 export class EventStore {
   private readonly pool: Pool;
   private submissionSchemaEnsured = false;
+  private batchSchemaEnsured = false;
 
   constructor() {
     this.pool = new Pool({
@@ -217,6 +218,7 @@ export class EventStore {
   }
 
   async upsertBatchJob(job: BatchJobRecord): Promise<void> {
+    await this.ensureBatchSchema();
     await this.pool.query(
       `
       INSERT INTO batch_jobs (
@@ -225,23 +227,55 @@ export class EventStore {
         total_items,
         accepted_items,
         rejected_items,
+        ingest_status,
+        discovered_items,
+        queued_items,
+        processing_items,
+        completed_items,
+        failed_items,
+        archive_bytes,
+        error_summary,
         status,
         updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW())
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
       ON CONFLICT (batch_id)
       DO UPDATE SET
         total_items = EXCLUDED.total_items,
         accepted_items = EXCLUDED.accepted_items,
         rejected_items = EXCLUDED.rejected_items,
+        ingest_status = EXCLUDED.ingest_status,
+        discovered_items = EXCLUDED.discovered_items,
+        queued_items = EXCLUDED.queued_items,
+        processing_items = EXCLUDED.processing_items,
+        completed_items = EXCLUDED.completed_items,
+        failed_items = EXCLUDED.failed_items,
+        archive_bytes = EXCLUDED.archive_bytes,
+        error_summary = EXCLUDED.error_summary,
         status = EXCLUDED.status,
         updated_at = NOW()
       `,
-      [job.batchId, job.applicationId, job.totalItems, job.acceptedItems, job.rejectedItems, job.status]
+      [
+        job.batchId,
+        job.applicationId,
+        job.totalItems,
+        job.acceptedItems,
+        job.rejectedItems,
+        job.ingestStatus ?? null,
+        job.discoveredItems ?? null,
+        job.queuedItems ?? null,
+        job.processingItems ?? null,
+        job.completedItems ?? null,
+        job.failedItems ?? null,
+        job.archiveBytes ?? null,
+        job.errorSummary ?? null,
+        job.status
+      ]
     );
   }
 
   async upsertBatchItems(batchId: string, items: BatchItemRecord[]): Promise<void> {
+    await this.ensureBatchSchema();
     if (items.length === 0) return;
 
     const client = await this.pool.connect();
@@ -256,16 +290,36 @@ export class EventStore {
             client_label_id,
             image_filename,
             regulatory_profile,
+            application_id,
+            expected_brand_name,
+            expected_class_type,
+            expected_abv_text,
+            expected_net_contents,
+            expected_government_warning,
+            require_gov_warning,
+            front_image_path,
+            back_image_path,
+            additional_image_paths,
             status,
             last_error_code,
             retry_count,
             error_reason,
             updated_at
           )
-          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW())
+          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::uuid, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, NOW())
           ON CONFLICT (batch_item_id)
           DO UPDATE SET
             regulatory_profile = EXCLUDED.regulatory_profile,
+            application_id = EXCLUDED.application_id,
+            expected_brand_name = EXCLUDED.expected_brand_name,
+            expected_class_type = EXCLUDED.expected_class_type,
+            expected_abv_text = EXCLUDED.expected_abv_text,
+            expected_net_contents = EXCLUDED.expected_net_contents,
+            expected_government_warning = EXCLUDED.expected_government_warning,
+            require_gov_warning = EXCLUDED.require_gov_warning,
+            front_image_path = EXCLUDED.front_image_path,
+            back_image_path = EXCLUDED.back_image_path,
+            additional_image_paths = EXCLUDED.additional_image_paths,
             status = EXCLUDED.status,
             last_error_code = EXCLUDED.last_error_code,
             retry_count = EXCLUDED.retry_count,
@@ -276,8 +330,18 @@ export class EventStore {
             item.batchItemId,
             batchId,
             item.clientLabelId,
-            item.imageFilename,
+            item.imageFilename ?? null,
             item.regulatoryProfile,
+            item.applicationId ?? null,
+            item.expectedBrandName ?? null,
+            item.expectedClassType ?? null,
+            item.expectedAbvText ?? null,
+            item.expectedNetContents ?? null,
+            item.expectedGovernmentWarning ?? null,
+            item.requireGovWarning ?? null,
+            item.frontImagePath ?? null,
+            item.backImagePath ?? null,
+            JSON.stringify(item.additionalImagePaths ?? []),
             item.status,
             item.lastErrorCode ?? null,
             item.retryCount,
@@ -295,6 +359,7 @@ export class EventStore {
   }
 
   async getBatchJob(batchId: string): Promise<BatchJobRecord | null> {
+    await this.ensureBatchSchema();
     const { rows } = await this.pool.query<{
       batch_id: string;
       application_id: string;
@@ -302,6 +367,14 @@ export class EventStore {
       accepted_items: number;
       rejected_items: number;
       status: BatchJobRecord["status"];
+      ingest_status: BatchJobRecord["ingestStatus"] | null;
+      discovered_items: number | null;
+      queued_items: number | null;
+      processing_items: number | null;
+      completed_items: number | null;
+      failed_items: number | null;
+      archive_bytes: number | null;
+      error_summary: string | null;
       created_at: Date;
       updated_at: Date;
     }>(
@@ -312,6 +385,14 @@ export class EventStore {
         total_items,
         accepted_items,
         rejected_items,
+        ingest_status,
+        discovered_items,
+        queued_items,
+        processing_items,
+        completed_items,
+        failed_items,
+        archive_bytes,
+        error_summary,
         status,
         created_at,
         updated_at
@@ -330,6 +411,14 @@ export class EventStore {
       totalItems: row.total_items,
       acceptedItems: row.accepted_items,
       rejectedItems: row.rejected_items,
+      ingestStatus: row.ingest_status ?? undefined,
+      discoveredItems: row.discovered_items ?? undefined,
+      queuedItems: row.queued_items ?? undefined,
+      processingItems: row.processing_items ?? undefined,
+      completedItems: row.completed_items ?? undefined,
+      failedItems: row.failed_items ?? undefined,
+      archiveBytes: row.archive_bytes ?? undefined,
+      errorSummary: row.error_summary ?? undefined,
       status: row.status,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString()
@@ -337,15 +426,27 @@ export class EventStore {
   }
 
   async listBatchItems(batchId: string, limit = 200, offset = 0): Promise<BatchItemRecord[]> {
+    await this.ensureBatchSchema();
     const { rows } = await this.pool.query<{
       batch_item_id: string;
       client_label_id: string;
-      image_filename: string;
+      image_filename: string | null;
       regulatory_profile: BatchItemRecord["regulatoryProfile"];
+      application_id: string | null;
+      expected_brand_name: string | null;
+      expected_class_type: string | null;
+      expected_abv_text: string | null;
+      expected_net_contents: string | null;
+      expected_government_warning: string | null;
+      require_gov_warning: boolean | null;
+      front_image_path: string | null;
+      back_image_path: string | null;
+      additional_image_paths: string[] | null;
       status: BatchItemRecord["status"];
       last_error_code: string | null;
       retry_count: number;
       error_reason: string | null;
+      updated_at: Date;
     }>(
       `
       SELECT
@@ -353,10 +454,21 @@ export class EventStore {
         client_label_id,
         image_filename,
         regulatory_profile,
+        application_id,
+        expected_brand_name,
+        expected_class_type,
+        expected_abv_text,
+        expected_net_contents,
+        expected_government_warning,
+        require_gov_warning,
+        front_image_path,
+        back_image_path,
+        additional_image_paths,
         status,
         last_error_code,
         retry_count,
-        error_reason
+        error_reason,
+        updated_at
       FROM batch_items
       WHERE batch_id = $1::uuid
       ORDER BY created_at ASC
@@ -369,12 +481,23 @@ export class EventStore {
     return rows.map((row) => ({
       batchItemId: row.batch_item_id,
       clientLabelId: row.client_label_id,
-      imageFilename: row.image_filename,
+      imageFilename: row.image_filename ?? undefined,
       regulatoryProfile: row.regulatory_profile,
+      applicationId: row.application_id ?? undefined,
+      expectedBrandName: row.expected_brand_name ?? undefined,
+      expectedClassType: row.expected_class_type ?? undefined,
+      expectedAbvText: row.expected_abv_text ?? undefined,
+      expectedNetContents: row.expected_net_contents ?? undefined,
+      expectedGovernmentWarning: row.expected_government_warning ?? undefined,
+      requireGovWarning: row.require_gov_warning ?? undefined,
+      frontImagePath: row.front_image_path ?? undefined,
+      backImagePath: row.back_image_path ?? undefined,
+      additionalImagePaths: row.additional_image_paths ?? undefined,
       status: row.status,
       lastErrorCode: row.last_error_code ?? undefined,
       retryCount: row.retry_count,
-      errorReason: row.error_reason ?? undefined
+      errorReason: row.error_reason ?? undefined,
+      updatedAt: row.updated_at.toISOString()
     }));
   }
 
@@ -442,6 +565,7 @@ export class EventStore {
   }
 
   async listBatchJobs(limit = 100): Promise<BatchJobRecord[]> {
+    await this.ensureBatchSchema();
     const { rows } = await this.pool.query<{
       batch_id: string;
       application_id: string;
@@ -449,6 +573,14 @@ export class EventStore {
       accepted_items: number;
       rejected_items: number;
       status: BatchJobRecord["status"];
+      ingest_status: BatchJobRecord["ingestStatus"] | null;
+      discovered_items: number | null;
+      queued_items: number | null;
+      processing_items: number | null;
+      completed_items: number | null;
+      failed_items: number | null;
+      archive_bytes: number | null;
+      error_summary: string | null;
       created_at: Date;
       updated_at: Date;
     }>(
@@ -459,6 +591,14 @@ export class EventStore {
         total_items,
         accepted_items,
         rejected_items,
+        ingest_status,
+        discovered_items,
+        queued_items,
+        processing_items,
+        completed_items,
+        failed_items,
+        archive_bytes,
+        error_summary,
         status,
         created_at,
         updated_at
@@ -475,6 +615,14 @@ export class EventStore {
       totalItems: row.total_items,
       acceptedItems: row.accepted_items,
       rejectedItems: row.rejected_items,
+      ingestStatus: row.ingest_status ?? undefined,
+      discoveredItems: row.discovered_items ?? undefined,
+      queuedItems: row.queued_items ?? undefined,
+      processingItems: row.processing_items ?? undefined,
+      completedItems: row.completed_items ?? undefined,
+      failedItems: row.failed_items ?? undefined,
+      archiveBytes: row.archive_bytes ?? undefined,
+      errorSummary: row.error_summary ?? undefined,
       status: row.status,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString()
@@ -878,6 +1026,39 @@ export class EventStore {
         ON submission_images(application_id, role, image_index, sha256);
     `);
     this.submissionSchemaEnsured = true;
+  }
+
+  private async ensureBatchSchema(): Promise<void> {
+    if (this.batchSchemaEnsured) return;
+    await this.pool.query(`
+      ALTER TABLE batch_jobs
+        ADD COLUMN IF NOT EXISTS ingest_status TEXT,
+        ADD COLUMN IF NOT EXISTS discovered_items INTEGER,
+        ADD COLUMN IF NOT EXISTS queued_items INTEGER,
+        ADD COLUMN IF NOT EXISTS processing_items INTEGER,
+        ADD COLUMN IF NOT EXISTS completed_items INTEGER,
+        ADD COLUMN IF NOT EXISTS failed_items INTEGER,
+        ADD COLUMN IF NOT EXISTS archive_bytes BIGINT,
+        ADD COLUMN IF NOT EXISTS error_summary TEXT;
+      ALTER TABLE batch_items
+        ADD COLUMN IF NOT EXISTS application_id UUID,
+        ADD COLUMN IF NOT EXISTS expected_brand_name TEXT,
+        ADD COLUMN IF NOT EXISTS expected_class_type TEXT,
+        ADD COLUMN IF NOT EXISTS expected_abv_text TEXT,
+        ADD COLUMN IF NOT EXISTS expected_net_contents TEXT,
+        ADD COLUMN IF NOT EXISTS expected_government_warning TEXT,
+        ADD COLUMN IF NOT EXISTS require_gov_warning BOOLEAN,
+        ADD COLUMN IF NOT EXISTS front_image_path TEXT,
+        ADD COLUMN IF NOT EXISTS back_image_path TEXT,
+        ADD COLUMN IF NOT EXISTS additional_image_paths JSONB;
+      CREATE INDEX IF NOT EXISTS idx_batch_items_batch_status_updated_at
+        ON batch_items(batch_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_batch_items_batch_created_at
+        ON batch_items(batch_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_batch_jobs_updated_at
+        ON batch_jobs(updated_at DESC);
+    `);
+    this.batchSchemaEnsured = true;
   }
 }
 

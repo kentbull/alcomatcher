@@ -128,3 +128,28 @@ export interface RescanResponse {
   confidence?: number;
   provider?: string;
 }
+
+export interface BatchQueueItem {
+  batchItemId: string;
+  clientLabelId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  retryCount: number;
+  applicationId?: string;
+  errorReason?: string;
+  updatedAt?: string;
+}
+
+export interface BatchDetail {
+  batchId: string;
+  applicationId: string;
+  status: string;
+  ingestStatus?: string;
+  totalItems: number;
+  discoveredItems: number;
+  queuedItems?: number;
+  processingItems?: number;
+  completedItems?: number;
+  failedItems?: number;
+  progressPct?: number;
+  items: BatchQueueItem[];
+}

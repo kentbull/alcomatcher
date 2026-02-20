@@ -10,6 +10,7 @@ import type {
   RescanResponse,
   ApplicationStatus,
   SyncState,
+  BatchDetail
 } from "../types/admin";
 
 const API_BASE = "/api";
@@ -243,4 +244,51 @@ export const adminApi = {
     }
     return response.json();
   },
+
+  async uploadBatchArchive(file: File, mode: "csv_bundle" | "directory_bundle" = "csv_bundle"): Promise<{
+    batchId: string;
+    statusUrl: string;
+    ingestStatus?: string;
+  }> {
+    const formData = new FormData();
+    formData.append("archive", file);
+    formData.append("mode", mode);
+
+    const response = await fetch(`${API_BASE}/batches/upload`, {
+      method: "POST",
+      credentials: "include",
+      body: formData
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to upload batch archive: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  async getBatchStatus(batchId: string, limit: number = 100, offset: number = 0): Promise<BatchDetail> {
+    const response = await fetch(
+      `${API_BASE}/batches/${encodeURIComponent(batchId)}?limit=${limit}&offset=${offset}`,
+      getFetchOptions({
+        headers: {}
+      })
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch batch status: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return {
+      batchId: data.batchId,
+      applicationId: data.applicationId,
+      status: data.status,
+      ingestStatus: data.ingestStatus,
+      totalItems: data.totalItems ?? 0,
+      discoveredItems: data.discoveredItems ?? 0,
+      queuedItems: data.queuedItems,
+      processingItems: data.processingItems,
+      completedItems: data.completedItems,
+      failedItems: data.failedItems,
+      progressPct: data.progressPct,
+      items: Array.isArray(data.items) ? data.items : []
+    };
+  }
 };
