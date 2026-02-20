@@ -75,7 +75,12 @@ export class AuthStore {
   private schemaReady = false;
 
   constructor() {
-    this.pool = new Pool({ connectionString: env.DATABASE_URL });
+    this.pool = new Pool({
+      connectionString: env.DATABASE_URL,
+      max: 3,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
   }
 
   private async ensureSchema(): Promise<void> {

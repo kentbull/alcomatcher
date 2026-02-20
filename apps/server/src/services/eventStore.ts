@@ -10,7 +10,12 @@ export class EventStore {
   private submissionSchemaEnsured = false;
 
   constructor() {
-    this.pool = new Pool({ connectionString: env.DATABASE_URL });
+    this.pool = new Pool({
+      connectionString: env.DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
   }
 
   async upsertApplication(doc: LabelApplicationDoc): Promise<void> {

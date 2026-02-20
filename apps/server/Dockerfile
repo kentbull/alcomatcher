@@ -20,4 +20,4 @@ RUN npm install --omit=dev
 COPY --from=build /app/apps/server/dist apps/server/dist
 COPY --from=build /app/apps/web/dist apps/web/dist
 EXPOSE 3000
-CMD ["node", "apps/server/dist/index.js"]
+CMD ["node", "--max-old-space-size=512", "apps/server/dist/index.js"]

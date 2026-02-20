@@ -44,14 +44,6 @@ jobs:
             fi
             cp /opt/alcomatcher/infra/nginx/host/alcomatcher.conf /etc/nginx/conf.d/alcomatcher.conf
             cp /opt/encodible/infra/nginx/host/encodible.conf /etc/nginx/conf.d/encodible.conf
-            LETSENCRYPT_EMAIL="${{ secrets.LETSENCRYPT_EMAIL }}"
-            if [ -n "$LETSENCRYPT_EMAIL" ] && [ -x /opt/encodible/infra/letsencrypt/request-cert.sh ]; then
-              /opt/encodible/infra/letsencrypt/request-cert.sh "$LETSENCRYPT_EMAIL"
-            elif [ -n "$LETSENCRYPT_EMAIL" ]; then
-              certbot renew --deploy-hook "systemctl reload nginx" || true
-            else
-              echo "Skipping certbot because LETSENCRYPT_EMAIL secret is empty" >&2
-            fi
             nginx -t
             systemctl reload nginx || true
             cd /opt/alcomatcher
