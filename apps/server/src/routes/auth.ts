@@ -118,9 +118,6 @@ authRouter.post("/api/auth/otp/verify", async (req, res) => {
     if (error instanceof Error && (error.message === "otp_invalid" || error.message === "otp_challenge_not_found")) {
       return res.status(401).json({ error: "otp_invalid_or_expired" });
     }
-    if (error instanceof Error && error.message === "apple_review_otp_not_configured") {
-      return res.status(500).json({ error: "apple_review_otp_not_configured" });
-    }
     if (error instanceof Error && error.message === "user_not_found") {
       return res.status(404).json({ error: "user_not_found" });
     }

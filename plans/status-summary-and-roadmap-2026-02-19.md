@@ -49,6 +49,7 @@ Status: `Done` / `In Progress` split
 - In progress / validate deeply:
   - Full destructive deletion verification with throwaway-user E2E data/file audit.
   - Residual UX polish in auth/register/delete modal copy/edge-case states.
+  - Reviewer access hardening: pre-registered Treasury reviewer manager account with reviewer-only static OTP fallback while preserving normal OTP flow.
 
 ## 3. Current Product State
 

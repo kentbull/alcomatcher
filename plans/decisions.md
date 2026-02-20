@@ -128,3 +128,17 @@
 - Consequences:
   - CI/CD must build, tag, and publish images before deploy.
   - Operations runbooks include Compose rollout and rollback procedures.
+
+## ADR-012: Reviewer Static OTP Fallback with Normal OTP Primary
+- Status: Accepted
+- Date: 2026-02-20
+- Decision:
+  - Keep standard OTP request/verify as the primary path for all users, including reviewer accounts.
+  - Pre-register and pre-verify reviewer accounts needed for external review (`reviewer@apple.com`, `samuel.corcos@treasury.gov`).
+  - Allow static OTP fallback only for configured reviewer accounts when dynamic OTP is unavailable.
+  - Do not expose fallback OTP hints in UI copy.
+- Rationale:
+  - Preserves realistic login behavior for review while ensuring guaranteed test access when email delivery is blocked.
+- Consequences:
+  - Reviewer fallback secrets must be managed and rotated as environment configuration.
+  - Fallback scope remains tightly constrained to explicit reviewer identities.

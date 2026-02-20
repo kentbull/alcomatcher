@@ -11,6 +11,10 @@ interface SeedUser {
   role: UserRole;
 }
 
+interface StaticOtpReviewer extends SeedUser {
+  staticOtp?: string;
+}
+
 interface JwtClaims {
   sub?: string;
   email?: string;
@@ -60,12 +64,45 @@ function parseSeedUsers(): SeedUser[] {
     .filter((entry) => Boolean(entry.email));
 }
 
-function isAppleReviewEmail(email: string): boolean {
-  return normalizeEmail(email) === normalizeEmail(env.APPLE_REVIEW_EMAIL);
+function parseStaticOtpReviewers(): StaticOtpReviewer[] {
+  const reviewers: StaticOtpReviewer[] = env.AUTH_STATIC_OTP_REVIEWERS.split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [emailRaw, roleRaw] = entry.split(":");
+      const email = normalizeEmail(emailRaw ?? "");
+      const role: UserRole = roleRaw === "compliance_manager" ? "compliance_manager" : "compliance_officer";
+      return { email, role };
+    })
+    .filter((entry) => Boolean(entry.email));
+
+  for (const reviewer of reviewers) {
+    if (reviewer.email === normalizeEmail(env.APPLE_REVIEW_EMAIL)) {
+      reviewer.staticOtp = (env.APPLE_REVIEW_OTP ?? "").trim() || undefined;
+    } else if (reviewer.email === "samuel.corcos@treasury.gov") {
+      reviewer.staticOtp = (env.SAMUEL_REVIEW_OTP ?? "").trim() || undefined;
+    }
+  }
+
+  // Legacy compatibility path for existing Apple-only env configuration.
+  if (env.APPLE_REVIEW_OTP_ENABLED) {
+    const appleEmail = normalizeEmail(env.APPLE_REVIEW_EMAIL);
+    if (!reviewers.some((reviewer) => reviewer.email === appleEmail)) {
+      reviewers.push({
+        email: appleEmail,
+        role: "compliance_officer",
+        staticOtp: (env.APPLE_REVIEW_OTP ?? "").trim() || undefined
+      });
+    }
+  }
+
+  return reviewers;
 }
 
-function isAppleReviewOverrideEnabled(): boolean {
-  return Boolean(env.APPLE_REVIEW_OTP_ENABLED);
+function getStaticOtpReviewer(email: string): StaticOtpReviewer | null {
+  const normalized = normalizeEmail(email);
+  const reviewers = parseStaticOtpReviewers();
+  return reviewers.find((reviewer) => reviewer.email === normalized) ?? null;
 }
 
 function staticOtpMatches(supplied: string, configured: string): boolean {
@@ -131,8 +168,9 @@ export class AuthService {
         await authStore.upsertUser(user.email, user.role);
       }
     }
-    if (isAppleReviewOverrideEnabled()) {
-      await authStore.upsertUser(env.APPLE_REVIEW_EMAIL, "compliance_officer");
+    const reviewers = parseStaticOtpReviewers();
+    for (const reviewer of reviewers) {
+      await authStore.upsertUser(reviewer.email, reviewer.role);
     }
     this.seeded = true;
   }
@@ -266,15 +304,6 @@ export class AuthService {
       throw new Error("rate_limited");
     }
 
-    if (isAppleReviewOverrideEnabled() && isAppleReviewEmail(email)) {
-      return {
-        ok: true,
-        status: "sent",
-        debugCode: env.AUTH_DEBUG_OTP ? env.APPLE_REVIEW_OTP : undefined,
-        expiresInMinutes: env.OTP_TTL_MINUTES
-      };
-    }
-
     const user = await authStore.getUserByEmail(email);
     assertOtpEligible(user);
 
@@ -329,28 +358,41 @@ export class AuthService {
       throw new Error("rate_limited");
     }
 
-    if (isAppleReviewOverrideEnabled() && isAppleReviewEmail(email)) {
-      const configuredOtp = (env.APPLE_REVIEW_OTP ?? "").trim();
-      if (!configuredOtp) throw new Error("apple_review_otp_not_configured");
-      if (!staticOtpMatches(code, configuredOtp)) throw new Error("otp_invalid");
-
-      const user = await authStore.getUserByEmail(email);
-      assertOtpEligible(user);
-      const authUser: AuthUser = {
-        userId: user.userId,
-        email: user.email,
-        role: user.role,
-        tokenVersion: user.tokenVersion
-      };
-      const token = this.signAuthToken(user);
-      return { token, user: authUser };
-    }
+    const user = await authStore.getUserByEmail(email);
+    assertOtpEligible(user);
 
     const challenge = await authStore.getActiveOtpChallenge(email);
-    if (!challenge) throw new Error("otp_challenge_not_found");
+    if (challenge) {
+      const suppliedHash = hashOtp(email, code.trim());
+      if (suppliedHash === challenge.codeHash) {
+        await authStore.consumeOtpChallengeAndClearOtpJobs(challenge.challengeId);
+        const authUser: AuthUser = {
+          userId: user.userId,
+          email: user.email,
+          role: user.role,
+          tokenVersion: user.tokenVersion
+        };
+        return {
+          token: this.signAuthToken(user),
+          user: authUser
+        };
+      }
 
-    const suppliedHash = hashOtp(email, code.trim());
-    if (suppliedHash !== challenge.codeHash) {
+      const staticReviewer = getStaticOtpReviewer(email);
+      if (staticReviewer?.staticOtp && staticOtpMatches(code, staticReviewer.staticOtp)) {
+        await authStore.consumeOtpChallengeAndClearOtpJobs(challenge.challengeId);
+        const authUser: AuthUser = {
+          userId: user.userId,
+          email: user.email,
+          role: user.role,
+          tokenVersion: user.tokenVersion
+        };
+        return {
+          token: this.signAuthToken(user),
+          user: authUser
+        };
+      }
+
       const state = await authStore.incrementOtpAttempts(challenge.challengeId);
       if (state.attemptCount >= state.maxAttempts) {
         await authStore.consumeOtpChallengeAndClearOtpJobs(challenge.challengeId);
@@ -358,9 +400,10 @@ export class AuthService {
       throw new Error("otp_invalid");
     }
 
-    await authStore.consumeOtpChallengeAndClearOtpJobs(challenge.challengeId);
-    const user = await authStore.getUserById(challenge.userId);
-    assertOtpEligible(user);
+    const staticReviewer = getStaticOtpReviewer(email);
+    if (!staticReviewer?.staticOtp || !staticOtpMatches(code, staticReviewer.staticOtp)) {
+      throw new Error("otp_challenge_not_found");
+    }
 
     const authUser: AuthUser = {
       userId: user.userId,

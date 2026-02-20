@@ -51,7 +51,10 @@ export const AdminBatchUploadView: React.FC = () => {
   return (
     <div className="admin-batch-view">
       <div className="admin-batch-header">
-        <h1 className="admin-heading-1">Batch Upload</h1>
+        <div>
+          <h1 className="admin-heading-1">Batch Upload</h1>
+          <p className="admin-text-muted admin-batch-subtitle">Queue 200-300 labels per upload, designed to scale to 500+.</p>
+        </div>
         <button className="btn-admin btn-admin--secondary" onClick={() => navigate("/admin/applications")}>Applications</button>
       </div>
 
@@ -62,15 +65,19 @@ export const AdminBatchUploadView: React.FC = () => {
 
         <label className="batch-label" htmlFor="batch-archive">Archive (.zip)</label>
         <input
+          className="batch-input"
           id="batch-archive"
           type="file"
           accept=".zip,application/zip"
           disabled={busy}
           onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)}
         />
+        <div className="admin-text-muted admin-batch-file">
+          {file ? `Selected: ${file.name}` : "No archive selected"}
+        </div>
 
         <label className="batch-label" htmlFor="batch-mode">Mode</label>
-        <select id="batch-mode" value={mode} disabled={busy} onChange={(event) => setMode(event.currentTarget.value as typeof mode)}>
+        <select className="batch-select" id="batch-mode" value={mode} disabled={busy} onChange={(event) => setMode(event.currentTarget.value as typeof mode)}>
           <option value="csv_bundle">CSV Bundle</option>
           <option value="directory_bundle">Directory Bundle</option>
         </select>
@@ -86,7 +93,7 @@ export const AdminBatchUploadView: React.FC = () => {
         <div className="admin-card admin-batch-status">
           <div className="admin-batch-status-head">
             <h2 className="admin-heading-2">Batch {batchId.slice(0, 8)}...</h2>
-            <span className="status-badge status-badge--default">{batch?.ingestStatus ?? "received"}</span>
+            <span className={`status-badge ${toIngestStatusClass(batch?.ingestStatus)}`}>{batch?.ingestStatus ?? "received"}</span>
           </div>
 
           <div className="admin-batch-progress">
@@ -119,7 +126,7 @@ export const AdminBatchUploadView: React.FC = () => {
                 {(batch?.items ?? []).map((item) => (
                   <tr key={item.batchItemId}>
                     <td>{item.clientLabelId}</td>
-                    <td>{item.status}</td>
+                    <td><span className={`status-badge ${toItemStatusClass(item.status)}`}>{item.status}</span></td>
                     <td>{item.retryCount}</td>
                     <td>
                       {item.applicationId ? (
@@ -142,3 +149,17 @@ export const AdminBatchUploadView: React.FC = () => {
     </div>
   );
 };
+
+function toItemStatusClass(status: string) {
+  if (status === "completed") return "status-badge--pass";
+  if (status === "failed") return "status-badge--fail";
+  if (status === "processing") return "status-badge--review";
+  return "status-badge--default";
+}
+
+function toIngestStatusClass(status?: string) {
+  if (status === "completed") return "status-badge--pass";
+  if (status === "failed" || status === "partially_failed") return "status-badge--fail";
+  if (status === "processing" || status === "parsing" || status === "queued") return "status-badge--review";
+  return "status-badge--default";
+}
