@@ -25,12 +25,16 @@ const envSchema = z.object({
   RESEND_FROM_EMAIL: z.string().optional(),
   HISTORY_IMAGE_STORAGE_ROOT: z.string().default("/var/lib/alcomatcher/submissions"),
   HISTORY_IMAGE_RETENTION_DAYS: z.coerce.number().default(30),
+  AUTH_STATIC_OTP_REVIEWERS: z
+    .string()
+    .default("reviewer@apple.com:compliance_officer;samuel.corcos@treasury.gov:compliance_manager"),
   APPLE_REVIEW_OTP_ENABLED: z
     .string()
     .optional()
     .transform((value) => value === "true"),
   APPLE_REVIEW_EMAIL: z.string().default("reviewer@apple.com"),
   APPLE_REVIEW_OTP: z.string().optional(),
+  SAMUEL_REVIEW_OTP: z.string().optional(),
   AUTH_DEBUG_OTP: z
     .string()
     .optional()
