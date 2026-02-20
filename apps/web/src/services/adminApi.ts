@@ -260,7 +260,14 @@ export const adminApi = {
       body: formData
     });
     if (!response.ok) {
-      throw new Error(`Failed to upload batch archive: ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to upload batch archive: ${detail}`);
     }
     return response.json();
   },
@@ -273,7 +280,14 @@ export const adminApi = {
       })
     );
     if (!response.ok) {
-      throw new Error(`Failed to fetch batch status: ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to fetch batch status: ${detail}`);
     }
     const data = await response.json();
     return {
@@ -288,6 +302,7 @@ export const adminApi = {
       completedItems: data.completedItems,
       failedItems: data.failedItems,
       progressPct: data.progressPct,
+      errorSummary: data.errorSummary,
       items: Array.isArray(data.items) ? data.items : []
     };
   }

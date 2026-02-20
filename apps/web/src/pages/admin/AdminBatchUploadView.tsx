@@ -100,6 +100,7 @@ export const AdminBatchUploadView: React.FC = () => {
             <div className="admin-batch-progress-fill" style={{ width: `${completion}%` }} />
           </div>
           <p className="admin-text-muted">{completion}% complete</p>
+          {batch?.errorSummary ? <p className="admin-batch-error">Batch Error: {batch.errorSummary}</p> : null}
 
           {batch && (
             <div className="admin-batch-metrics">

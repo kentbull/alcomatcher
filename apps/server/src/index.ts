@@ -12,6 +12,7 @@ import { batchRouter } from "./routes/batches.js";
 import { eventsRouter } from "./routes/events.js";
 import { healthRouter } from "./routes/health.js";
 import { scannerRouter } from "./routes/scanner.js";
+import { runStartupDependencyChecks } from "./services/startupDependencyChecks.js";
 import { siteRouter } from "./routes/site.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +75,14 @@ app.get("*", (req, res, next) => {
   res.sendFile(join(webDistPath, "index.html"));
 });
 
-app.listen(env.PORT, () => {
-  logger.info({ port: env.PORT }, "AlcoMatcher API listening");
-});
+void (async () => {
+  try {
+    await runStartupDependencyChecks(logger);
+    app.listen(env.PORT, () => {
+      logger.info({ port: env.PORT }, "AlcoMatcher API listening");
+    });
+  } catch (error) {
+    logger.fatal({ err: error }, "Server startup aborted");
+    process.exit(1);
+  }
+})();

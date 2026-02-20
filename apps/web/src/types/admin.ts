@@ -151,5 +151,6 @@ export interface BatchDetail {
   completedItems?: number;
   failedItems?: number;
   progressPct?: number;
+  errorSummary?: string;
   items: BatchQueueItem[];
 }
