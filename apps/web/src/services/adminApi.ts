@@ -10,7 +10,9 @@ import type {
   RescanResponse,
   ApplicationStatus,
   SyncState,
-  BatchDetail
+  BatchDetail,
+  ListUsersParams,
+  ListUsersResponse
 } from "../types/admin";
 
 const API_BASE = "/api";
@@ -257,6 +259,87 @@ export const adminApi = {
       throw new Error(`Failed to rescan image: ${response.statusText}`);
     }
     return response.json();
+  },
+
+  // User Management
+  async getUsers(params?: ListUsersParams): Promise<ListUsersResponse> {
+    const searchParams = new URLSearchParams();
+
+    if (params?.limit !== undefined) searchParams.set("limit", params.limit.toString());
+    if (params?.cursor) searchParams.set("cursor", params.cursor);
+    if (params?.role) searchParams.set("role", params.role);
+    if (typeof params?.verified === "boolean") searchParams.set("verified", String(params.verified));
+    if (typeof params?.active === "boolean") searchParams.set("active", String(params.active));
+
+    const url = `${API_BASE}/admin/users${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    const response = await fetch(url, getFetchOptions());
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to fetch users: ${detail}`);
+    }
+
+    const data = await response.json();
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : null
+    };
+  },
+
+  async promoteUser(userId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/admin/users/${encodeURIComponent(userId)}/promote`,
+      getFetchOptions({ method: "POST" })
+    );
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to promote user: ${detail}`);
+    }
+  },
+
+  async activateUser(userId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/admin/users/${encodeURIComponent(userId)}/activate`,
+      getFetchOptions({ method: "POST" })
+    );
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to activate user: ${detail}`);
+    }
+  },
+
+  async deactivateUser(userId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/admin/users/${encodeURIComponent(userId)}/deactivate`,
+      getFetchOptions({ method: "POST" })
+    );
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Keep HTTP status text fallback.
+      }
+      throw new Error(`Failed to deactivate user: ${detail}`);
+    }
   },
 
   async uploadBatchArchive(file: File, mode: "csv_bundle" | "directory_bundle" = "csv_bundle"): Promise<{

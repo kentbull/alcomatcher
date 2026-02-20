@@ -20,6 +20,31 @@ export interface KPIMetrics {
   avgOcrLatency: number;
 }
 
+export type AdminUserRole = "compliance_officer" | "compliance_manager";
+
+export interface AdminUser {
+  userId: string;
+  email: string;
+  role: AdminUserRole;
+  isActive: boolean;
+  emailVerifiedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListUsersParams {
+  limit?: number;
+  cursor?: string;
+  role?: AdminUserRole;
+  verified?: boolean;
+  active?: boolean;
+}
+
+export interface ListUsersResponse {
+  items: AdminUser[];
+  nextCursor: string | null;
+}
+
 export interface ApplicationQueueItem {
   applicationId: string;
   status: ApplicationStatus;

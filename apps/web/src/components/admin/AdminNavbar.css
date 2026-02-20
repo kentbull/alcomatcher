@@ -51,6 +51,12 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.admin-navbar-links::-webkit-scrollbar {
+  display: none;
 }
 
 .admin-nav-link {
@@ -184,6 +190,7 @@
   .admin-nav-link {
     padding: 0.4rem 0.8rem;
     font-size: 0.85rem;
+    white-space: nowrap;
   }
 
   .admin-user-email {

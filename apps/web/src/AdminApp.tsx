@@ -9,6 +9,7 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard").then(m 
 const AdminListView = lazy(() => import("./pages/admin/AdminListView").then(m => ({ default: m.AdminListView })));
 const AdminDetailView = lazy(() => import("./pages/admin/AdminDetailView").then(m => ({ default: m.AdminDetailView })));
 const AdminBatchUploadView = lazy(() => import("./pages/admin/AdminBatchUploadView").then(m => ({ default: m.AdminBatchUploadView })));
+const AdminUserManagementView = lazy(() => import("./pages/admin/AdminUserManagementView").then(m => ({ default: m.AdminUserManagementView })));
 
 interface AuthUser {
   userId: string;
@@ -137,6 +138,16 @@ export const AdminApp: React.FC = () => {
             element={
               isAuthenticated && isManager ? (
                 <AdminBatchUploadView />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+          <Route
+            path="/admin/users"
+            element={
+              isAuthenticated && isManager ? (
+                <AdminUserManagementView />
               ) : (
                 <Navigate to="/login" replace />
               )
