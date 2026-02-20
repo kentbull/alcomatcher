@@ -1,41 +1,100 @@
-# AlcoMatcher Foundation
+# AlcoMatcher
 
-Scanner-first, offline-first compliance platform foundation for week one.
+Scanner-first, offline-first compliance platform for alcohol label review.
 
 ## Monorepo Layout
-- `apps/server`: API + domain foundations (event-sourcing/CQRS + CRDT sync contracts)
-- `apps/web`: Ionic React scanner-first shell
-- `infra/nginx`: Nginx reverse proxy config for `alcomatcher.com`
-- `.github/workflows`: CI/CD scaffolding
+- `apps/server`: Express API, event-sourced domain services, CQRS projections, batch worker
+- `apps/web`: Ionic React + Capacitor scanner and admin web/mobile shell
+- `infra/nginx`: Nginx configs for local/prod reverse proxy
+- `plans`: release plan, ADRs, source references, and agent state
+- `test-scripts/batch`: synthetic batch generation and smoke test helpers
 
-## Quick Start (Server Stack)
-1. Copy `.env.example` to `.env` and adjust if needed.
-2. Start server-side runtime:
+## Prerequisites
+- Node.js `>=20`
+- npm `>=10`
+- Docker + Docker Compose (for containerized server stack)
+
+## Quick Start (Docker Stack)
+1. Install dependencies:
+   - `npm install`
+2. Copy env file:
+   - `cp .env.example .env`
+3. Start services:
    - `docker compose up --build`
-3. Verify API health:
+4. Verify:
    - `curl http://localhost:3000/health`
 
-## Local App Development
-- Server: `npm run dev:server`
-- Web scanner shell: `npm run dev:web`
+First-run note:
+- `docker-compose.yml` mounts `/opt/keys/google-key.json` into the app/worker containers.
+- If you are not using Google Vision yet, either create a placeholder file at that path or remove/comment the mount lines locally.
+
+This brings up:
+- `app` (API/static web host) on `http://localhost:3000`
+- `worker` (background batch processing)
+- `db` (Postgres 16)
+- `nginx` on `http://localhost:8080`
+
+## Local Development (Without Docker for App Processes)
+1. Install dependencies:
+   - `npm install`
+2. Start the API:
+   - `npm run dev:server`
+3. Start the web app:
+   - `npm run dev:web`
+
+Local URLs:
+- Scanner web app: `http://localhost:8100`
+- Admin UI: `http://localhost:8100/admin`
+- API health: `http://localhost:3000/health`
+
+Note: local server development still needs a reachable Postgres instance via `DATABASE_URL`.
+
+## Environment Notes
+Use `.env.example` as the baseline.
+
+Commonly adjusted values:
+- `DATABASE_URL`: Postgres connection string
+- `CORS_ORIGIN`: web origin (default `http://localhost:8100`)
+- `JWT_SECRET`: replace in non-dev environments
+- `GOOGLE_APPLICATION_CREDENTIALS`: optional Google Vision key path
+- `ANTHROPIC_API_KEY`: optional Claude key for semantic extraction
+- `SEMANTIC_EXTRACTION_ENABLED`: enable semantic extraction path when needed
+
+## Build, Test, Typecheck
+- Build all workspaces: `npm run build`
+- Test all workspaces: `npm test`
+- Typecheck all workspaces: `npm run typecheck`
+
+Server-only tests:
+- `npm run test --workspace @alcomatcher/server`
+
+## Scanner and Batch Flow (Current)
+- Single scan quick check: `POST /api/scanner/quick-check` (front/back + optional additional images)
+- Session-based scan flow: `POST /api/scanner/sessions` and related image/session endpoints
+- Batch upload flow (manager role): `POST /api/batches/upload`, poll with `GET /api/batches/:batchId`
+
+## OCR / Decision Pipeline
+- Local OCR baseline: server-side Tesseract
+- Cloud OCR fallback: Google Vision (optional)
+- Semantic extraction: Anthropic Claude (optional)
+
+## Architecture
+- Aggregate root: `ComplianceApplication`
+- Local-first sync model with CRDT merge service
+- Event sourcing for command-side state changes
+- CQRS projections for query/read models
+- Immutable event history for auditability
 
 ## Mobile Testing
-- Browser test (fastest):
-  - Open `https://alcomatcher.com/scanner` on your phone browser.
-  - Capture/import a label image and run quick check.
-- Native iOS build path (Capacitor):
-  - `cd apps/web`
-  - `npm run cap:sync`
-  - `npm run cap:open:ios` (open Xcode project)
-  - Build/run from Xcode to your connected iPhone.
+- Fast path: open scanner in mobile browser and run a quick check
+- iOS Capacitor path:
+  1. `cd apps/web`
+  2. `npm run cap:sync`
+  3. `npm run cap:open:ios`
+  4. Build/run from Xcode on device
 
-## Notes on OCR Runtime
-- Current OCR for quick check runs on server-side local Tesseract.
-- Your iPhone/browser uploads image to server for OCR and check evaluation.
-- The Google Vision API is used for processing the images after they are uploaded to the server for additional OCR resilience.
-- The Claude text API is used to process the text extracted from the images to perform brand, class, and other attribute matching.
-
-## Architecture Notes
-- `ComplianceApplication` is modeled as a local-first CRDT document synced to the server.
-- Server state remains event-sourced and query projections are derived from immutable events.
-
+## Additional Docs
+- Admin UI details: `apps/web/ADMIN_README.md`
+- Release plan: `plans/release-plan-v1.md`
+- Decisions/ADRs: `plans/decisions.md`
+- Source references: `plans/sources.md`
