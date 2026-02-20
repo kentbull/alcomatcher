@@ -192,7 +192,14 @@ export const adminApi = {
       })
     );
     if (!response.ok) {
-      throw new Error(`Failed to approve application: ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Fall back to status text.
+      }
+      throw new Error(`Failed to approve application: ${detail}`);
     }
     return response.json();
   },
@@ -210,7 +217,14 @@ export const adminApi = {
       })
     );
     if (!response.ok) {
-      throw new Error(`Failed to reject application: ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail || payload?.error || detail;
+      } catch {
+        // Fall back to status text.
+      }
+      throw new Error(`Failed to reject application: ${detail}`);
     }
     return response.json();
   },

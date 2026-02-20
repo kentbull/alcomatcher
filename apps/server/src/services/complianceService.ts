@@ -288,6 +288,16 @@ export class ComplianceService {
     let doc = this.docs.get(applicationId);
     if (doc) return doc;
 
+    try {
+      const persisted = await eventStore.getApplicationById(applicationId);
+      if (persisted) {
+        this.docs.set(applicationId, persisted);
+        return persisted;
+      }
+    } catch {
+      // Fall through to existing list-based lookup.
+    }
+
     const all = await this.listApplications();
     doc = all.find((entry) => entry.applicationId === applicationId);
     return doc ?? null;

@@ -118,6 +118,52 @@ export class EventStore {
     }));
   }
 
+  async getApplicationById(applicationId: string): Promise<LabelApplicationDoc | null> {
+    const { rows } = await this.pool.query<{
+      application_id: string;
+      document_id: string;
+      regulatory_profile: LabelApplicationDoc["regulatoryProfile"];
+      submission_type: LabelApplicationDoc["submissionType"];
+      current_status: LabelApplicationDoc["status"];
+      sync_state: LabelApplicationDoc["syncState"];
+      brand_name: string | null;
+      class_type: string | null;
+      updated_at: Date;
+    }>(
+      `
+      SELECT
+        application_id,
+        document_id,
+        regulatory_profile,
+        submission_type,
+        current_status,
+        sync_state,
+        brand_name,
+        class_type,
+        updated_at
+      FROM label_applications
+      WHERE application_id = $1::uuid
+      LIMIT 1
+      `,
+      [applicationId]
+    );
+
+    if (rows.length === 0) return null;
+    const row = rows[0];
+    return {
+      applicationId: row.application_id,
+      documentId: row.document_id,
+      regulatoryProfile: row.regulatory_profile,
+      submissionType: row.submission_type,
+      status: row.current_status,
+      checks: [],
+      syncState: row.sync_state,
+      brandName: row.brand_name ?? undefined,
+      classType: row.class_type ?? undefined,
+      updatedAt: row.updated_at.toISOString()
+    };
+  }
+
   async getEvents(applicationId: string): Promise<ComplianceEvent[]> {
     const { rows } = await this.pool.query<{
       event_id: string;

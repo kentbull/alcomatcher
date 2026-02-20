@@ -371,6 +371,9 @@ applicationRouter.post("/api/admin/applications/:applicationId/approve", async (
       ...result
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "application_not_found") {
+      return res.status(404).json({ error: "application_not_found" });
+    }
     return res.status(500).json({
       error: "approval_failed",
       detail: error instanceof Error ? error.message : "unknown_error"
@@ -407,6 +410,9 @@ applicationRouter.post("/api/admin/applications/:applicationId/reject", async (r
       ...result
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "application_not_found") {
+      return res.status(404).json({ error: "application_not_found" });
+    }
     return res.status(500).json({
       error: "rejection_failed",
       detail: error instanceof Error ? error.message : "unknown_error"
