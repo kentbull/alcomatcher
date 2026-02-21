@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev:server": "npm run dev --workspace @alcomatcher/server",
+    "dev:worker": "npm run worker --workspace @alcomatcher/server",
     "dev:web": "npm run dev --workspace @alcomatcher/web",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces --if-present",

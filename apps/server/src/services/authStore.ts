@@ -567,8 +567,9 @@ export class AuthStore {
     requestedUserAgent?: string;
     verificationToken: string;
     mobileSignup?: boolean;
-  }): Promise<void> {
+  }): Promise<string> {
     await this.ensureSchema();
+    const challengeId = randomUUID();
     await this.pool.query(
       `
       INSERT INTO email_verification_challenges (
@@ -589,7 +590,7 @@ export class AuthStore {
       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::timestamptz, 'queued', 0, NOW(), $7, $8, $9, NOW())
       `,
       [
-        randomUUID(),
+        challengeId,
         input.userId,
         input.email.toLowerCase(),
         input.tokenHash,
@@ -600,6 +601,7 @@ export class AuthStore {
         input.mobileSignup ?? false
       ]
     );
+    return challengeId;
   }
 
   async consumeEmailVerificationChallengeByTokenHash(tokenHash: string): Promise<{ userId: string; email: string } | null> {

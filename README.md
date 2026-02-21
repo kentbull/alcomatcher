@@ -39,7 +39,9 @@ This brings up:
    - `npm install`
 2. Start the API:
    - `npm run dev:server`
-3. Start the web app:
+3. Start the worker (required for queued OTP/verification retries):
+   - `npm run worker --workspace @alcomatcher/server`
+4. Start the web app:
    - `npm run dev:web`
 
 Local URLs:
@@ -48,6 +50,7 @@ Local URLs:
 - API health: `http://localhost:3000/health`
 
 Note: local server development still needs a reachable Postgres instance via `DATABASE_URL`.
+Note: email-based registration/OTP flows require both `RESEND_API_KEY` and `RESEND_FROM_EMAIL`.
 
 ## Environment Notes
 Use `.env.example` as the baseline.

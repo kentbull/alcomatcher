@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import jwt from "jsonwebtoken";
+import pino from "pino";
 import { env } from "../config/env.js";
 import { authStore } from "./authStore.js";
 import type { AuthUser, AuthUserRecord, UserRole } from "../types/auth.js";
@@ -36,6 +37,7 @@ interface EmailSendFailure {
 
 const rateBuckets = new Map<string, RateCounter>();
 const OTP_RETRY_DELAYS_SECONDS = [2, 5, 10] as const;
+const logger = pino({ name: "alcomatcher-auth-service" });
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -128,6 +130,27 @@ function requireResendConfigured() {
   if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
     throw new Error("email_provider_not_configured");
   }
+}
+
+function assertEmailProviderReady(): void {
+  requireResendConfigured();
+}
+
+function parseEmailSendFailure(error: unknown): EmailSendFailure {
+  if (error instanceof Error && error.message === "email_provider_not_configured") {
+    return { message: "email_provider_not_configured" };
+  }
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as Partial<EmailSendFailure>;
+    if (typeof maybe.message === "string") {
+      return {
+        message: maybe.message,
+        statusCode: typeof maybe.statusCode === "number" ? maybe.statusCode : undefined,
+        retryAfterSeconds: typeof maybe.retryAfterSeconds === "number" ? maybe.retryAfterSeconds : undefined
+      };
+    }
+  }
+  return { message: "email_send_unknown_failure" };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -257,22 +280,26 @@ export class AuthService {
     }
   }
 
-  async requestRegistration(rawEmail: string, context?: { ip?: string; userAgent?: string; mobile?: boolean }): Promise<{ ok: true; expiresInMinutes: number; debugVerifyUrl?: string }> {
+  async requestRegistration(
+    rawEmail: string,
+    context?: { ip?: string; userAgent?: string; mobile?: boolean }
+  ): Promise<{ ok: true; status: "sent" | "queued"; expiresInMinutes: number; debugVerifyUrl?: string }> {
     await this.ensureSeedUsers();
     const email = normalizeEmail(rawEmail);
     if (!checkRateLimit(`register:${email}`, env.REGISTER_RATE_LIMIT_MAX, env.REGISTER_RATE_LIMIT_WINDOW_SEC)) {
       throw new Error("rate_limited");
     }
+    assertEmailProviderReady();
 
     const user = await authStore.createOrGetRegisteredUser(email);
     if (user.emailVerifiedAt) {
-      return { ok: true, expiresInMinutes: env.EMAIL_VERIFY_TTL_MINUTES };
+      return { ok: true, status: "sent", expiresInMinutes: env.EMAIL_VERIFY_TTL_MINUTES };
     }
 
     const token = randomBytes(32).toString("base64url");
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + env.EMAIL_VERIFY_TTL_MINUTES * 60 * 1000).toISOString();
-    await authStore.createEmailVerificationChallenge({
+    const challengeId = await authStore.createEmailVerificationChallenge({
       userId: user.userId,
       email,
       tokenHash,
@@ -283,11 +310,42 @@ export class AuthService {
       mobileSignup: context?.mobile ?? false
     });
 
-    return {
-      ok: true,
-      expiresInMinutes: env.EMAIL_VERIFY_TTL_MINUTES,
-      debugVerifyUrl: env.AUTH_DEBUG_OTP ? `${env.APP_BASE_URL}/api/auth/register/verify?token=${encodeURIComponent(token)}` : undefined
-    };
+    try {
+      await this.sendRegistrationVerificationEmail(email, token, context?.mobile ?? false);
+      await authStore.markVerificationEmailSent(challengeId);
+      return {
+        ok: true,
+        status: "sent",
+        expiresInMinutes: env.EMAIL_VERIFY_TTL_MINUTES,
+        debugVerifyUrl: env.AUTH_DEBUG_OTP ? `${env.APP_BASE_URL}/api/auth/register/verify?token=${encodeURIComponent(token)}` : undefined
+      };
+    } catch (error) {
+      const known = parseEmailSendFailure(error);
+      if (known.message === "email_provider_not_configured") {
+        throw new Error("email_provider_not_configured");
+      }
+      const retryAfterSeconds =
+        typeof known.retryAfterSeconds === "number"
+          ? known.retryAfterSeconds
+          : computeRetryBackoffSeconds(typeof known.statusCode === "number" ? known.statusCode : null, 1);
+      if (isTransientEmailFailure(known.statusCode)) {
+        await authStore.markVerificationEmailFailed(challengeId, known.message ?? "registration_send_failed", {
+          retryAfterSeconds,
+          maxAttempts: 6
+        });
+        return {
+          ok: true,
+          status: "queued",
+          expiresInMinutes: env.EMAIL_VERIFY_TTL_MINUTES,
+          debugVerifyUrl: env.AUTH_DEBUG_OTP ? `${env.APP_BASE_URL}/api/auth/register/verify?token=${encodeURIComponent(token)}` : undefined
+        };
+      }
+      await authStore.markVerificationEmailFailed(challengeId, known.message ?? "registration_send_failed", {
+        retryAfterSeconds,
+        maxAttempts: 1
+      });
+      throw new Error("registration_delivery_unavailable");
+    }
   }
 
   async verifyRegistrationToken(token: string): Promise<{ email: string } | null> {
@@ -303,6 +361,7 @@ export class AuthService {
     if (!checkRateLimit(`otp_request:${email}`, env.OTP_RATE_LIMIT_MAX, env.OTP_RATE_LIMIT_WINDOW_SEC)) {
       throw new Error("rate_limited");
     }
+    assertEmailProviderReady();
 
     const user = await authStore.getUserByEmail(email);
     assertOtpEligible(user);
@@ -334,7 +393,11 @@ export class AuthService {
         expiresInMinutes: env.OTP_TTL_MINUTES
       };
     } catch (error) {
-      const known = error as EmailSendFailure;
+      const known = parseEmailSendFailure(error);
+      if (known.message === "email_provider_not_configured") {
+        await authStore.markOtpEmailFailed(jobId, "email_provider_not_configured");
+        throw new Error("email_provider_not_configured");
+      }
       const retryAfterSeconds = typeof known.retryAfterSeconds === "number" ? known.retryAfterSeconds : computeOtpRetryDelaySeconds(1);
       if (isTransientEmailFailure(known.statusCode)) {
         await authStore.markOtpEmailRetry(jobId, known.message ?? "otp_send_failed", retryAfterSeconds);
@@ -511,6 +574,7 @@ export class AuthService {
     try {
       requireResendConfigured();
     } catch {
+      logger.warn({ skippedReason: "email_provider_not_configured", queue: "registration_verification" }, "Verification email dispatch skipped");
       return { processed: 0, sent: 0, failed: 0 };
     }
 
@@ -557,6 +621,7 @@ export class AuthService {
     try {
       requireResendConfigured();
     } catch {
+      logger.warn({ skippedReason: "email_provider_not_configured", queue: "otp" }, "OTP email dispatch skipped");
       return { processed: 0, sent: 0, failed: 0, retried: 0 };
     }
 
@@ -599,5 +664,10 @@ export class AuthService {
     return authStore.pruneExpiredVerificationChallenges();
   }
 }
+
+export const authServiceTestables = {
+  parseEmailSendFailure,
+  isTransientEmailFailure
+};
 
 export const authService = new AuthService();

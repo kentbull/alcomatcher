@@ -871,6 +871,8 @@ function App() {
       const message = err instanceof Error ? err.message : String(err ?? "otp_request_failed");
       if (message.includes("email_not_verified")) {
         setAuthError("Email not verified. Open the verification email link, then request OTP again.");
+      } else if (message.includes("email_provider_not_configured")) {
+        setAuthError("OTP email is unavailable right now due to server configuration. Contact support.");
       } else if (message.includes("rate_limited")) {
         setAuthError("Too many OTP attempts. Please wait a moment and retry.");
       } else if (message.includes("otp_delivery_unavailable")) {
@@ -897,11 +899,19 @@ function App() {
       if (!response.ok) {
         throw new Error(typeof payload?.error === "string" ? payload.error : "registration_request_failed");
       }
-      setAuthInfo("Verification link sent. Check your email. After verifying, return and request OTP.");
+      if (payload?.status === "queued") {
+        setAuthInfo("Verification request accepted. Delivery is retrying in the background; check email shortly.");
+      } else {
+        setAuthInfo("Verification link sent. Check your email. After verifying, return and request OTP.");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err ?? "registration_request_failed");
       if (message.includes("rate_limited")) {
         setAuthError("Too many registration attempts. Please wait a moment and retry.");
+      } else if (message.includes("email_provider_not_configured")) {
+        setAuthError("Registration email is unavailable right now due to server configuration. Contact support.");
+      } else if (message.includes("registration_delivery_unavailable")) {
+        setAuthError("Registration email could not be delivered right now. Please retry shortly.");
       } else {
         setAuthError(formatNetworkError(err, "Create account"));
       }

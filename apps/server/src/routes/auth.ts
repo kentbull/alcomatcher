@@ -44,10 +44,16 @@ authRouter.post("/api/auth/register/request", async (req, res) => {
       userAgent: req.get("user-agent") ?? undefined,
       mobile: parsed.data.mobile ?? false
     });
-    return res.status(202).json({ status: "queued", ...result });
+    return res.status(202).json(result);
   } catch (error) {
     if (error instanceof Error && error.message === "rate_limited") {
       return res.status(429).json({ error: "rate_limited" });
+    }
+    if (error instanceof Error && error.message === "email_provider_not_configured") {
+      return res.status(503).json({ error: "email_provider_not_configured" });
+    }
+    if (error instanceof Error && error.message === "registration_delivery_unavailable") {
+      return res.status(503).json({ error: "registration_delivery_unavailable" });
     }
     return res.status(500).json({
       error: "registration_request_failed",
@@ -94,6 +100,9 @@ authRouter.post("/api/auth/otp/request", async (req, res) => {
     }
     if (error instanceof Error && error.message === "otp_delivery_unavailable") {
       return res.status(503).json({ error: "otp_delivery_unavailable" });
+    }
+    if (error instanceof Error && error.message === "email_provider_not_configured") {
+      return res.status(503).json({ error: "email_provider_not_configured" });
     }
     return res.status(500).json({
       error: "otp_request_failed",
